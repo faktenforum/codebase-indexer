@@ -1,0 +1,36 @@
+{
+  "workspace": {
+    "title": "Workspace",
+    "placeholder": "Absolute path to the workspace directory (e.g. /home/user/my-project)"
+  },
+  "stats": {
+    "status": "Index Status",
+    "files": "Indexed Files",
+    "enabled": "Enabled"
+  },
+  "search": {
+    "title": "Semantic Search",
+    "placeholder": "Search for code...",
+    "pathFilter": "Path filter (optional)",
+    "limit": "Limit",
+    "button": "Search",
+    "resultCount": "{count} results",
+    "lines": "Lines {start}-{end}"
+  },
+  "indexing": {
+    "title": "Indexing...",
+    "starting": "Starting...",
+    "progress": "{processed} / {total} files"
+  },
+  "actions": {
+    "index": "Index Workspace",
+    "releaseLock": "Release Lock"
+  },
+  "errors": {
+    "indexFailed": "Indexing failed"
+  },
+  "common": {
+    "yes": "Yes",
+    "no": "No"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "codebase-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Semantic code search engine using Tree-sitter, embeddings, and LanceDB for fast codebase indexing",
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:core": "pnpm --filter @codebase-indexer/core build",
+    "build:vscode": "pnpm --filter @codebase-indexer/vscode build",
+    "build:web": "pnpm --filter @codebase-indexer/web build",
+    "dev:web": "pnpm --filter @codebase-indexer/web dev",
+    "check": "pnpm -r check"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

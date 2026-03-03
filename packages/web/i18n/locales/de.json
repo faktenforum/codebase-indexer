@@ -1,0 +1,36 @@
+{
+  "workspace": {
+    "title": "Workspace",
+    "placeholder": "Absoluter Pfad zum Workspace-Verzeichnis (z.B. /home/user/mein-projekt)"
+  },
+  "stats": {
+    "status": "Index-Status",
+    "files": "Indizierte Dateien",
+    "enabled": "Aktiviert"
+  },
+  "search": {
+    "title": "Semantische Suche",
+    "placeholder": "Code suchen...",
+    "pathFilter": "Pfad-Filter (optional)",
+    "limit": "Limit",
+    "button": "Suchen",
+    "resultCount": "{count} Ergebnisse",
+    "lines": "Zeilen {start}-{end}"
+  },
+  "indexing": {
+    "title": "Indizierung läuft...",
+    "starting": "Starte...",
+    "progress": "{processed} / {total} Dateien"
+  },
+  "actions": {
+    "index": "Workspace indizieren",
+    "releaseLock": "Lock freigeben"
+  },
+  "errors": {
+    "indexFailed": "Indizierung fehlgeschlagen"
+  },
+  "common": {
+    "yes": "Ja",
+    "no": "Nein"
+  }
+}

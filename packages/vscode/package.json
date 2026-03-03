@@ -1,0 +1,110 @@
+{
+  "name": "@codebase-indexer/vscode",
+  "displayName": "Codebase Indexer",
+  "description": "Semantic code search using Tree-sitter, embeddings, and LanceDB",
+  "version": "0.1.0",
+  "publisher": "faktenforum",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codebaseIndexer.indexWorkspace",
+        "title": "Index Workspace",
+        "category": "Codebase Indexer"
+      },
+      {
+        "command": "codebaseIndexer.search",
+        "title": "Semantic Search",
+        "category": "Codebase Indexer"
+      },
+      {
+        "command": "codebaseIndexer.clearIndex",
+        "title": "Clear Index",
+        "category": "Codebase Indexer"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codebaseIndexerSidebar",
+          "title": "Codebase Indexer",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codebaseIndexerSidebar": [
+        {
+          "type": "webview",
+          "id": "codebaseIndexer.searchView",
+          "name": "Search"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codebase Indexer",
+      "properties": {
+        "codebaseIndexer.embedding.provider": {
+          "type": "string",
+          "default": "openrouter",
+          "description": "Embedding provider (openrouter, scaleway, or custom)"
+        },
+        "codebaseIndexer.embedding.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the embedding provider"
+        },
+        "codebaseIndexer.embedding.model": {
+          "type": "string",
+          "default": "openai/text-embedding-3-small",
+          "description": "Embedding model name"
+        },
+        "codebaseIndexer.embedding.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Custom base URL for the embedding API (optional)"
+        },
+        "codebaseIndexer.embedding.dimensions": {
+          "type": "number",
+          "default": 1536,
+          "description": "Embedding vector dimensions"
+        },
+        "codebaseIndexer.autoIndex": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically index workspace on startup"
+        },
+        "codebaseIndexer.indexDir": {
+          "type": "string",
+          "default": ".codebase-indexer",
+          "description": "Directory name for index storage"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "check": "tsc --noEmit",
+    "package": "pnpm build && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@codebase-indexer/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.109.0",
+    "@types/node": "^25.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
