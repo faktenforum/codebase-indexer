@@ -66,6 +66,17 @@ const AST_SUPPORTED_EXTENSIONS = new Set([
   '.vala',
   '.vapi',
   '.svelte',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.scala',
+  '.lua',
+  '.zig',
+  '.toml',
+  '.yaml',
+  '.yml',
+  '.ex',
+  '.exs',
 ]);
 
 function createSegmentHash(
@@ -97,6 +108,7 @@ function captureNameToKind(captureName: string): ChunkKind {
   if (captureName.includes('protocol')) return 'interface';
   if (captureName.includes('object')) return 'class';
   if (captureName.includes('record')) return 'class';
+  if (captureName.includes('package')) return 'module';
   if (captureName.includes('decorator')) return 'decorator';
   return 'fallback';
 }
@@ -159,7 +171,10 @@ function buildParentScope(node: TreeSitterNode): string {
       type === 'protocol_declaration' ||
       type === 'extension_declaration' ||
       type === 'singleton_class' ||
-      type === 'errordomain_declaration'
+      type === 'errordomain_declaration' ||
+      type === 'trait_definition' ||           // Scala
+      type === 'object_definition' ||          // Scala
+      type === 'package_clause'                // Scala
     ) {
       const nameNode = current.childForFieldName('name');
       if (nameNode) {

@@ -25,6 +25,13 @@ import csharpQuery from './queries/csharp.js';
 import vueQuery from './queries/vue.js';
 import valaQuery from './queries/vala.js';
 import svelteQuery from './queries/svelte.js';
+import bashQuery from './queries/bash.js';
+import scalaQuery from './queries/scala.js';
+import luaQuery from './queries/lua.js';
+import zigQuery from './queries/zig.js';
+import tomlQuery from './queries/toml.js';
+import yamlQuery from './queries/yaml.js';
+import elixirQuery from './queries/elixir.js';
 
 const require = createRequire(import.meta.url);
 
@@ -117,6 +124,13 @@ export async function loadRequiredLanguageParsers(filesToParse: string[]): Promi
         case 'mts':
         case 'cts':
           return 'ts';
+        case 'bash':
+        case 'zsh':
+          return 'sh';
+        case 'exs':
+          return 'ex';
+        case 'yml':
+          return 'yaml';
         default:
           return ext;
       }
@@ -244,6 +258,41 @@ export async function loadRequiredLanguageParsers(filesToParse: string[]): Promi
         );
         language = await loadLanguage('svelte', svelteWasmPath);
         query = new Query(language, svelteQuery);
+        break;
+      }
+      case 'sh': {
+        language = await loadLanguage('bash');
+        query = new Query(language, bashQuery);
+        break;
+      }
+      case 'scala': {
+        language = await loadLanguage('scala');
+        query = new Query(language, scalaQuery);
+        break;
+      }
+      case 'lua': {
+        language = await loadLanguage('lua');
+        query = new Query(language, luaQuery);
+        break;
+      }
+      case 'zig': {
+        language = await loadLanguage('zig');
+        query = new Query(language, zigQuery);
+        break;
+      }
+      case 'toml': {
+        language = await loadLanguage('toml');
+        query = new Query(language, tomlQuery);
+        break;
+      }
+      case 'yaml': {
+        language = await loadLanguage('yaml');
+        query = new Query(language, yamlQuery);
+        break;
+      }
+      case 'ex': {
+        language = await loadLanguage('elixir');
+        query = new Query(language, elixirQuery);
         break;
       }
       default:
