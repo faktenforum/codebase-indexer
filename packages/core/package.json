@@ -22,7 +22,7 @@
     "@lancedb/lancedb": "^0.26.2",
     "ignore": "^7.0.5",
     "tree-sitter-wasms": "^0.1.13",
-    "web-tree-sitter": "^0.26.6"
+    "web-tree-sitter": "~0.25.10"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",

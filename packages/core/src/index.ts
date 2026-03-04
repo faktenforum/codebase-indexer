@@ -17,12 +17,14 @@ export type { CodeIndexConfig, EmbeddingConfig, ResolvedEmbeddingConfig } from '
 // Types
 export type {
   CodeBlock,
+  ChunkKind,
   SearchResult,
   DebugChunkEntry,
   IndexStatus,
   IndexState,
   IndexStats,
   SearchOptions,
+  SearchMode,
   IndexOptions,
   ProgressCallback,
 } from './types.js';

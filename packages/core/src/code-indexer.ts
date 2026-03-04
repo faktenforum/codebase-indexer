@@ -216,10 +216,15 @@ export class CodeIndexer {
           const blocks = await chunkFileWithAst(relPath, content, fileHash);
           allBlocks.push(...blocks);
         }
+        // Embed first, then delete old chunks, then insert new ones.
+        // This order prevents data loss if embedding fails mid-batch.
         if (allBlocks.length > 0) {
           const texts = allBlocks.map((b) => b.content);
           const vectors = await this.embeddingService.embedBatch(texts);
+          await store.deleteByFilePaths(batchPaths);
           await store.upsert(allBlocks, vectors);
+        } else {
+          await store.deleteByFilePaths(batchPaths);
         }
         processed += batchPaths.length;
         this.setStatus(workspacePath, 'indexing', `Indexed ${processed}/${toIndex.length} files`, processed, total);
@@ -228,6 +233,7 @@ export class CodeIndexer {
       this.saveFileHashes(indexPath, workspacePath, currentHashes);
       await store.markIndexingComplete(total);
       await store.optimize();
+      await store.createFtsIndex();
       await store.close();
       releaseLock();
       this.setStatus(workspacePath, 'indexed', 'Index complete', total, total);
@@ -242,7 +248,9 @@ export class CodeIndexer {
   }
 
   /**
-   * Semantic search in workspace code index.
+   * Search in workspace code index.
+   * Supports three modes: 'vector' (semantic), 'fts' (keyword), 'hybrid' (both + RRF).
+   * Default mode is 'hybrid'.
    */
   async searchWorkspace(
     workspacePath: string,
@@ -254,6 +262,7 @@ export class CodeIndexer {
     const indexPath = this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
     const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
+    const mode = options?.mode ?? 'hybrid';
 
     try {
       await store.initialize();
@@ -262,12 +271,26 @@ export class CodeIndexer {
         await store.close();
         return [];
       }
-      const [queryVector] = await this.embeddingService.embedBatch([query]);
-      const results = await store.search(queryVector!, {
+
+      const searchOpts = {
         pathPrefix: options?.pathPrefix,
         limit: options?.limit ?? DEFAULT_SEARCH_LIMIT,
         minScore: options?.minScore ?? DEFAULT_MIN_SCORE,
-      });
+      };
+
+      let results: SearchResult[];
+
+      if (mode === 'fts') {
+        results = await store.ftsSearch(query, searchOpts);
+      } else if (mode === 'vector') {
+        const [queryVector] = await this.embeddingService.embedBatch([query]);
+        results = await store.search(queryVector!, searchOpts);
+      } else {
+        // hybrid: vector + FTS + RRF
+        const [queryVector] = await this.embeddingService.embedBatch([query]);
+        results = await store.hybridSearch(queryVector!, query, searchOpts);
+      }
+
       await store.close();
       return results;
     } catch (err) {
@@ -346,14 +369,16 @@ export class CodeIndexer {
       await store.close();
       return rows.map((row) => {
         const content = row.codeChunk ?? '';
-        const preview = content.slice(0, 200);
         return {
           file_path: row.filePath,
           start_line: row.startLine,
           end_line: row.endLine,
-          content_preview: preview,
+          content,
           segment_hash: row.id,
           char_count: content.length,
+          symbol: row.symbol || undefined,
+          parentScope: row.parentScope || undefined,
+          kind: (row.kind || undefined) as DebugChunkEntry['kind'],
         };
       });
     } catch (err) {
@@ -382,17 +407,17 @@ export class CodeIndexer {
       const fileHash = createFileHash(content);
       const blocks = await chunkFileWithAst(relativePath, content, fileHash);
       const limited = blocks.slice(0, limit);
-      return limited.map((block) => {
-        const preview = block.content.slice(0, 200);
-        return {
-          file_path: block.file_path,
-          start_line: block.start_line,
-          end_line: block.end_line,
-          content_preview: preview,
-          segment_hash: block.segment_hash,
-          char_count: block.content.length,
-        };
-      });
+      return limited.map((block) => ({
+        file_path: block.file_path,
+        start_line: block.start_line,
+        end_line: block.end_line,
+        content: block.content,
+        segment_hash: block.segment_hash,
+        char_count: block.content.length,
+        symbol: block.symbol,
+        parentScope: block.parentScope,
+        kind: block.kind,
+      }));
     } catch (err) {
       console.warn('[CodeIndexer] rechunkFileForDebug failed:', (err as Error).message ?? String(err));
       return [];

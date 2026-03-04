@@ -2,9 +2,10 @@
  * Configuration and constants for codebase indexing.
  */
 
-export const MAX_CHUNK_CHARS = 1000;
-export const MIN_CHUNK_CHARS = 50;
-export const MIN_CHUNK_REMAINDER_CHARS = 200;
+export const MAX_CHUNK_CHARS = 3500;
+export const MIN_CHUNK_CHARS = 100;
+export const MIN_CHUNK_REMAINDER_CHARS = 300;
+export const MERGE_MAX_CHUNK_CHARS = MIN_CHUNK_CHARS * 4;
 export const MAX_CHARS_TOLERANCE_FACTOR = 1.15;
 export const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; // 1 MB
 export const EMBEDDING_BATCH_SIZE = 32;

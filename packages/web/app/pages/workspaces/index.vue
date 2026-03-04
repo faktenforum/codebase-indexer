@@ -8,7 +8,7 @@
       </UDashboardNavbar>
     </template>
 
-    <div class="p-6 space-y-6">
+    <div class="p-6 space-y-6 overflow-y-auto">
       <!-- Add Workspace -->
       <UCard>
         <template #header>
@@ -123,10 +123,9 @@
 </template>
 
 <script setup lang="ts">
-import type { IndexStatusResponse } from '~/types/api';
-
 const { t } = useI18n();
 const workspaces = useWorkspaces();
+const { statusColor } = useStatusColor();
 const indexingPaths = ref(new Set<string>());
 
 const POLL_INTERVAL_MS = 800;
@@ -138,15 +137,6 @@ function handleAdd() {
   if (!newPath.value.trim()) return;
   workspaces.addWorkspace(newPath.value);
   newPath.value = '';
-}
-
-function statusColor(status?: IndexStatusResponse['status']) {
-  switch (status) {
-    case 'indexed': return 'success' as const;
-    case 'indexing': return 'info' as const;
-    case 'error': return 'error' as const;
-    default: return 'neutral' as const;
-  }
 }
 
 function progressPercent(path: string): number {

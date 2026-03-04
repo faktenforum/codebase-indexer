@@ -18,7 +18,7 @@
       </UDashboardNavbar>
     </template>
 
-    <div class="p-6 space-y-4">
+    <div class="p-6 space-y-4 overflow-y-auto">
       <!-- File Info -->
       <div class="flex items-center gap-3 text-sm">
         <UIcon name="i-lucide-file-code" class="size-4 text-dimmed" />
@@ -86,11 +86,29 @@
                 <span class="text-xs text-dimmed">
                   {{ t('chunks.chars', { count: chunk.char_count }) }}
                 </span>
+                <UBadge v-if="chunk.kind" :color="kindColor(chunk.kind)" variant="soft" size="xs">
+                  {{ chunk.kind }}
+                </UBadge>
+                <UBadge v-if="chunk.symbol" color="info" variant="soft" size="xs" class="font-mono">
+                  {{ chunk.symbol }}
+                </UBadge>
+                <span v-if="chunk.parentScope" class="text-xs text-dimmed font-mono">
+                  {{ chunk.parentScope }}
+                </span>
                 <UBadge color="neutral" variant="soft" size="xs" class="font-mono">
                   {{ chunk.segment_hash.slice(0, 12) }}
                 </UBadge>
               </div>
-              <pre class="text-xs bg-[var(--ui-bg-elevated)] p-3 rounded overflow-x-auto max-h-48 whitespace-pre-wrap">{{ chunk.content_preview }}</pre>
+              <div class="relative cursor-pointer" @click="toggleExpand(`stored-${i}`)">
+                <pre
+                  class="text-xs bg-elevated p-3 rounded overflow-x-auto whitespace-pre-wrap transition-[max-height] duration-200"
+                  :class="expandedChunks.has(`stored-${i}`) ? '' : 'max-h-48'"
+                >{{ chunk.content }}</pre>
+                <div
+                  v-if="!expandedChunks.has(`stored-${i}`)"
+                  class="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-elevated to-transparent rounded-b pointer-events-none"
+                />
+              </div>
             </div>
           </UCard>
         </div>
@@ -119,11 +137,29 @@
                 <span class="text-xs text-dimmed">
                   {{ t('chunks.chars', { count: chunk.char_count }) }}
                 </span>
+                <UBadge v-if="chunk.kind" :color="kindColor(chunk.kind)" variant="soft" size="xs">
+                  {{ chunk.kind }}
+                </UBadge>
+                <UBadge v-if="chunk.symbol" color="info" variant="soft" size="xs" class="font-mono">
+                  {{ chunk.symbol }}
+                </UBadge>
+                <span v-if="chunk.parentScope" class="text-xs text-dimmed font-mono">
+                  {{ chunk.parentScope }}
+                </span>
                 <UBadge color="neutral" variant="soft" size="xs" class="font-mono">
                   {{ chunk.segment_hash.slice(0, 12) }}
                 </UBadge>
               </div>
-              <pre class="text-xs bg-[var(--ui-bg-elevated)] p-3 rounded overflow-x-auto max-h-48 whitespace-pre-wrap">{{ chunk.content_preview }}</pre>
+              <div class="relative cursor-pointer" @click="toggleExpand(`rechunk-${i}`)">
+                <pre
+                  class="text-xs bg-elevated p-3 rounded overflow-x-auto whitespace-pre-wrap transition-[max-height] duration-200"
+                  :class="expandedChunks.has(`rechunk-${i}`) ? '' : 'max-h-48'"
+                >{{ chunk.content }}</pre>
+                <div
+                  v-if="!expandedChunks.has(`rechunk-${i}`)"
+                  class="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-elevated to-transparent rounded-b pointer-events-none"
+                />
+              </div>
             </div>
           </UCard>
         </div>
@@ -139,6 +175,32 @@ const chunksData = useChunks();
 
 const workspacePath = computed(() => (route.query.workspace as string) || '');
 const filePath = computed(() => (route.query.file as string) || '');
+const expandedChunks = reactive(new Set<string>());
+
+function toggleExpand(key: string) {
+  if (expandedChunks.has(key)) {
+    expandedChunks.delete(key);
+  } else {
+    expandedChunks.add(key);
+  }
+}
+
+type BadgeColor = 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral';
+
+const KIND_COLORS: Record<string, BadgeColor> = {
+  function: 'success',
+  method: 'success',
+  class: 'primary',
+  interface: 'info',
+  type: 'info',
+  enum: 'warning',
+  module: 'primary',
+  namespace: 'primary',
+  continuation: 'error',
+  gap: 'neutral',
+};
+
+const kindColor = (kind: string): BadgeColor => KIND_COLORS[kind] ?? 'neutral';
 
 function handleRechunk() {
   if (workspacePath.value && filePath.value) {

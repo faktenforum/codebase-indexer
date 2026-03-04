@@ -44,14 +44,17 @@
     "enabled": "Aktiviert"
   },
   "search": {
-    "title": "Semantische Suche",
+    "title": "Code-Suche",
     "placeholder": "Code suchen...",
     "selectWorkspace": "Workspace auswählen",
     "pathFilter": "Pfad-Filter (optional)",
     "limit": "Limit",
     "button": "Suchen",
     "resultCount": "{count} Ergebnisse",
-    "lines": "Zeilen {start}-{end}"
+    "lines": "Zeilen {start}-{end}",
+    "modeHybrid": "Hybrid (Empfohlen)",
+    "modeVector": "Vektor (Semantisch)",
+    "modeFts": "Volltext (Keyword)"
   },
   "indexing": {
     "title": "Indizierung läuft...",

@@ -4,7 +4,7 @@
 
 import { mkdirSync, existsSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CodeBlock, SearchResult } from './types.js';
+import type { CodeBlock, SearchResult, ChunkKind } from './types.js';
 import { DEFAULT_SEARCH_LIMIT, DEFAULT_MIN_SCORE } from './constants.js';
 
 const VECTOR_TABLE_NAME = 'vector';
@@ -129,6 +129,9 @@ export class LanceDBStore {
         codeChunk: '',
         startLine: 0,
         endLine: 0,
+        symbol: '',
+        parentScope: '',
+        kind: '',
       },
     ];
     this.table = await db.createTable(VECTOR_TABLE_NAME, sample);
@@ -197,6 +200,9 @@ export class LanceDBStore {
       codeChunk: block.content,
       startLine: block.start_line,
       endLine: block.end_line,
+      symbol: block.symbol ?? '',
+      parentScope: block.parentScope ?? '',
+      kind: block.kind ?? '',
     }));
     const ids = rows.map((r) => r.id);
     if (ids.length > 0) {
@@ -217,7 +223,7 @@ export class LanceDBStore {
     pathFilter: string,
     limit: number,
   ): Promise<
-    Array<{ id: string; filePath: string; startLine: number; endLine: number; codeChunk: string }>
+    Array<{ id: string; filePath: string; startLine: number; endLine: number; codeChunk: string; symbol: string; parentScope: string; kind: string }>
   > {
     try {
       const table = await this.getTable();
@@ -237,6 +243,9 @@ export class LanceDBStore {
         startLine: number;
         endLine: number;
         codeChunk: string;
+        symbol: string;
+        parentScope: string;
+        kind: string;
       }>) ?? [];
     } catch {
       return [];
@@ -274,6 +283,111 @@ export class LanceDBStore {
       end_line: row.endLine,
       code_chunk: row.codeChunk,
     }));
+  }
+
+  /**
+   * Create a Full-Text Search index on the codeChunk column.
+   * Uses LanceDB's built-in Tantivy-based FTS.
+   * Should be called after indexing is complete.
+   */
+  async createFtsIndex(): Promise<void> {
+    try {
+      const lancedb = await this.getLanceDB();
+      const table = await this.getTable();
+      await table.createIndex('codeChunk', {
+        config: lancedb.Index.fts({
+          baseTokenizer: 'simple',
+          stem: false,
+          lowercase: true,
+          removeStopWords: false,
+          withPosition: true,
+        }),
+        replace: true,
+      });
+    } catch (err) {
+      console.warn('[LanceDBStore] createFtsIndex failed:', (err as Error).message);
+    }
+  }
+
+  /**
+   * Full-text search using the FTS index on codeChunk.
+   */
+  async ftsSearch(
+    queryText: string,
+    options?: { pathPrefix?: string; limit?: number },
+  ): Promise<SearchResult[]> {
+    const table = await this.getTable();
+    const limit = options?.limit ?? DEFAULT_SEARCH_LIMIT;
+
+    try {
+      let query = table.search(queryText, 'fts', 'codeChunk');
+      if (options?.pathPrefix) {
+        const escaped = escapeSqlLikePattern(options.pathPrefix);
+        query = query.where(`filePath LIKE '${escaped}%'`);
+      }
+      const list: Array<{
+        id: string;
+        filePath: string;
+        codeChunk: string;
+        startLine: number;
+        endLine: number;
+        _score?: number;
+      }> = await query.limit(limit).toArray();
+
+      return list.map((row, index) => ({
+        file_path: row.filePath,
+        score: row._score ?? 1 / (index + 1),
+        start_line: row.startLine,
+        end_line: row.endLine,
+        code_chunk: row.codeChunk,
+      }));
+    } catch (err) {
+      console.warn('[LanceDBStore] ftsSearch failed:', (err as Error).message);
+      return [];
+    }
+  }
+
+  /**
+   * Hybrid search combining vector search and FTS with RRF (Reciprocal Rank Fusion).
+   */
+  async hybridSearch(
+    queryVector: number[],
+    queryText: string,
+    options?: { pathPrefix?: string; limit?: number; minScore?: number },
+  ): Promise<SearchResult[]> {
+    const limit = options?.limit ?? DEFAULT_SEARCH_LIMIT;
+    const overfetchLimit = Math.max(limit * 3, 50);
+
+    // Run both searches in parallel
+    const [vectorResults, ftsResults] = await Promise.all([
+      this.search(queryVector, { ...options, limit: overfetchLimit }),
+      this.ftsSearch(queryText, { pathPrefix: options?.pathPrefix, limit: overfetchLimit }),
+    ]);
+
+    // RRF merging (k = 60, standard constant)
+    const k = 60;
+    const scoreMap = new Map<string, { score: number; result: SearchResult }>();
+    const chunkKey = (r: SearchResult) => `${r.file_path}:${r.start_line}-${r.end_line}`;
+
+    const addRrfScores = (results: SearchResult[]) => {
+      results.forEach((result, index) => {
+        const key = chunkKey(result);
+        const existing = scoreMap.get(key);
+        const rrfScore = 1 / (k + index + 1);
+        scoreMap.set(key, {
+          score: (existing?.score ?? 0) + rrfScore,
+          result: existing?.result ?? result,
+        });
+      });
+    };
+
+    addRrfScores(vectorResults);
+    addRrfScores(ftsResults);
+
+    return Array.from(scoreMap.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map(({ score, result }) => ({ ...result, score }));
   }
 
   async markIndexingComplete(fileCount?: number): Promise<void> {

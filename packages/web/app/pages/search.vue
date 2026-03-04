@@ -8,7 +8,7 @@
       </UDashboardNavbar>
     </template>
 
-    <div class="p-6 space-y-6">
+    <div class="p-6 space-y-6 overflow-y-auto">
       <!-- Search Form -->
       <UCard>
         <form @submit.prevent="handleSearch" class="space-y-4">
@@ -42,6 +42,12 @@
               :placeholder="t('search.pathFilter')"
               size="sm"
               class="flex-1"
+            />
+            <USelect
+              v-model="searchMode"
+              :items="searchModeItems"
+              size="sm"
+              class="w-40"
             />
             <UInput
               v-model.number="limit"
@@ -105,6 +111,13 @@ const selectedWorkspace = ref('');
 const query = ref('');
 const pathFilter = ref('');
 const limit = ref(20);
+const searchMode = ref('hybrid');
+
+const searchModeItems = computed(() => [
+  { label: t('search.modeHybrid'), value: 'hybrid' },
+  { label: t('search.modeVector'), value: 'vector' },
+  { label: t('search.modeFts'), value: 'fts' },
+]);
 
 const workspaceItems = computed(() =>
   workspaces.workspaces.value.map((w) => ({
@@ -120,6 +133,7 @@ async function handleSearch() {
     workspacePath: selectedWorkspace.value,
     path: pathFilter.value || undefined,
     limit: limit.value,
+    mode: searchMode.value as 'vector' | 'fts' | 'hybrid',
   });
 }
 

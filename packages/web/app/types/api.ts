@@ -1,8 +1,11 @@
+export type SearchMode = 'vector' | 'fts' | 'hybrid';
+
 export interface SearchRequest {
   query: string;
   workspacePath?: string;
   path?: string;
   limit?: number;
+  mode?: SearchMode;
 }
 
 export interface SearchResultItem {
@@ -43,9 +46,12 @@ export interface ChunkItem {
   file_path: string;
   start_line: number;
   end_line: number;
-  content_preview: string;
+  content: string;
   segment_hash: string;
   char_count: number;
+  symbol?: string;
+  parentScope?: string;
+  kind?: string;
 }
 
 export interface ChunksResponse {

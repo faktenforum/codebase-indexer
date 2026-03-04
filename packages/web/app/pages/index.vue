@@ -8,7 +8,7 @@
       </UDashboardNavbar>
     </template>
 
-    <div class="p-6 space-y-6">
+    <div class="p-6 space-y-6 overflow-y-auto">
       <!-- Stats Cards -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <UCard>
@@ -74,10 +74,9 @@
 </template>
 
 <script setup lang="ts">
-import type { IndexStatusResponse } from '~/types/api';
-
 const { t } = useI18n();
 const workspaces = useWorkspaces();
+const { statusColor } = useStatusColor();
 
 const indexedCount = computed(() => {
   return Object.values(workspaces.statusMap.value).filter((s) => s.status === 'indexed').length;
@@ -86,15 +85,6 @@ const indexedCount = computed(() => {
 const totalFiles = computed(() => {
   return Object.values(workspaces.statsMap.value).reduce((sum, s) => sum + (s.fileCount ?? 0), 0);
 });
-
-function statusColor(status?: IndexStatusResponse['status']) {
-  switch (status) {
-    case 'indexed': return 'success' as const;
-    case 'indexing': return 'info' as const;
-    case 'error': return 'error' as const;
-    default: return 'neutral' as const;
-  }
-}
 
 onMounted(async () => {
   workspaces.loadFromStorage();

@@ -11,9 +11,11 @@ export default defineEventHandler(async (event) => {
   const indexer = useCodeIndexer();
   const workspacePath = body.workspacePath || getWorkspacePath();
 
+  const mode = body.mode || 'hybrid';
   const results = await indexer.searchWorkspace(workspacePath, query.trim(), {
     pathPrefix: body.path || undefined,
     limit: typeof body.limit === 'number' ? body.limit : 20,
+    mode,
   });
 
   return { results };
