@@ -297,6 +297,32 @@ export class CodeIndexer {
   }
 
   /**
+   * List all distinct indexed file paths for a workspace.
+   */
+  async listIndexedFiles(workspacePath: string): Promise<string[]> {
+    if (!this.isEnabled()) return [];
+    const indexPath = this.resolveIndexPath(workspacePath);
+    const vectorSize = this.embeddingService.getDimensions();
+    const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
+
+    try {
+      await store.initialize();
+      const hasData = await store.hasData();
+      if (!hasData) {
+        await store.close();
+        return [];
+      }
+      const files = await store.listDistinctFilePaths();
+      await store.close();
+      return files;
+    } catch (err) {
+      console.warn('[CodeIndexer] listIndexedFiles failed:', (err as Error).message ?? String(err));
+      await store.close().catch(() => {});
+      return [];
+    }
+  }
+
+  /**
    * List stored code index chunks for a given file path or path prefix.
    */
   async listChunksInIndex(

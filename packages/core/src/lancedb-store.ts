@@ -345,6 +345,20 @@ export class LanceDBStore {
     }
   }
 
+  async listDistinctFilePaths(): Promise<string[]> {
+    try {
+      const table = await this.getTable();
+      const rows = await table.query().select(['filePath']).toArray();
+      const paths = new Set<string>();
+      for (const row of rows as Array<{ filePath: string }>) {
+        if (row.filePath) paths.add(row.filePath);
+      }
+      return [...paths].sort();
+    } catch {
+      return [];
+    }
+  }
+
   async deleteAll(): Promise<void> {
     await this.close();
     if (existsSync(this.dbPath)) {

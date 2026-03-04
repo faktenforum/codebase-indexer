@@ -34,3 +34,31 @@ export interface StatsResponse {
   isEnabled: boolean;
   hasIndex: boolean;
 }
+
+export interface FilesResponse {
+  files: string[];
+}
+
+export interface ChunkItem {
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  content_preview: string;
+  segment_hash: string;
+  char_count: number;
+}
+
+export interface ChunksResponse {
+  chunks: ChunkItem[];
+}
+
+export interface RechunkRequest {
+  workspacePath: string;
+  filePath: string;
+  limit?: number;
+}
+
+export interface Workspace {
+  path: string;
+  addedAt: string;
+}

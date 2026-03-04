@@ -1,7 +1,42 @@
 {
+  "nav": {
+    "overview": "Übersicht",
+    "workspaces": "Workspaces",
+    "search": "Suche"
+  },
+  "overview": {
+    "workspaceCount": "Workspaces",
+    "indexedCount": "Indiziert",
+    "totalFiles": "Dateien gesamt",
+    "filesCount": "{count} Dateien"
+  },
   "workspace": {
     "title": "Workspace",
     "placeholder": "Absoluter Pfad zum Workspace-Verzeichnis (z.B. /home/user/mein-projekt)"
+  },
+  "workspaces": {
+    "add": "Workspace hinzufügen",
+    "addButton": "Hinzufügen",
+    "manage": "Verwalten",
+    "empty": "Noch keine Workspaces hinzugefügt. Füge einen Workspace-Pfad hinzu, um zu beginnen.",
+    "forceReindex": "Neu indizieren",
+    "browseFiles": "Dateien ansehen",
+    "remove": "Entfernen"
+  },
+  "files": {
+    "title": "Indizierte Dateien",
+    "filterPlaceholder": "Dateien filtern...",
+    "empty": "Keine indizierten Dateien gefunden. Indiziere zuerst den Workspace.",
+    "showing": "{from}-{to} von {total}"
+  },
+  "chunks": {
+    "title": "Chunks",
+    "stored": "Gespeicherte Chunks",
+    "rechunked": "Neu gechunkt (Aktuell)",
+    "rechunk": "Neu chunken",
+    "clearRechunk": "Leeren",
+    "empty": "Keine Chunks für diese Datei gefunden.",
+    "chars": "{count} Zeichen"
   },
   "stats": {
     "status": "Index-Status",
@@ -11,6 +46,7 @@
   "search": {
     "title": "Semantische Suche",
     "placeholder": "Code suchen...",
+    "selectWorkspace": "Workspace auswählen",
     "pathFilter": "Pfad-Filter (optional)",
     "limit": "Limit",
     "button": "Suchen",
@@ -23,7 +59,7 @@
     "progress": "{processed} / {total} Dateien"
   },
   "actions": {
-    "index": "Workspace indizieren",
+    "index": "Indizieren",
     "releaseLock": "Lock freigeben"
   },
   "errors": {

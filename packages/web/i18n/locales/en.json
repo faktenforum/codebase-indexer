@@ -1,7 +1,42 @@
 {
+  "nav": {
+    "overview": "Overview",
+    "workspaces": "Workspaces",
+    "search": "Search"
+  },
+  "overview": {
+    "workspaceCount": "Workspaces",
+    "indexedCount": "Indexed",
+    "totalFiles": "Total Files",
+    "filesCount": "{count} files"
+  },
   "workspace": {
     "title": "Workspace",
     "placeholder": "Absolute path to the workspace directory (e.g. /home/user/my-project)"
+  },
+  "workspaces": {
+    "add": "Add Workspace",
+    "addButton": "Add",
+    "manage": "Manage",
+    "empty": "No workspaces added yet. Add a workspace path to get started.",
+    "forceReindex": "Force Reindex",
+    "browseFiles": "Browse Files",
+    "remove": "Remove"
+  },
+  "files": {
+    "title": "Indexed Files",
+    "filterPlaceholder": "Filter files...",
+    "empty": "No indexed files found. Index the workspace first.",
+    "showing": "{from}-{to} of {total}"
+  },
+  "chunks": {
+    "title": "Chunks",
+    "stored": "Stored Chunks",
+    "rechunked": "Rechunked (Current)",
+    "rechunk": "Rechunk",
+    "clearRechunk": "Clear",
+    "empty": "No chunks found for this file.",
+    "chars": "{count} chars"
   },
   "stats": {
     "status": "Index Status",
@@ -11,6 +46,7 @@
   "search": {
     "title": "Semantic Search",
     "placeholder": "Search for code...",
+    "selectWorkspace": "Select a workspace",
     "pathFilter": "Path filter (optional)",
     "limit": "Limit",
     "button": "Search",
@@ -23,7 +59,7 @@
     "progress": "{processed} / {total} files"
   },
   "actions": {
-    "index": "Index Workspace",
+    "index": "Index",
     "releaseLock": "Release Lock"
   },
   "errors": {

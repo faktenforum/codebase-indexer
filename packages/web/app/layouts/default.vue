@@ -1,31 +1,70 @@
-<template>
-  <div class="min-h-screen bg-[var(--ui-bg)]">
-    <header class="border-b border-[var(--ui-border)] px-6 py-4">
-      <div class="flex items-center justify-between max-w-7xl mx-auto">
-        <h1 class="text-xl font-bold">Codebase Indexer</h1>
-        <div class="flex items-center gap-3">
-          <USelect
-            v-model="locale"
-            :items="localeItems"
-            size="sm"
-            class="w-28"
-          />
-        </div>
-      </div>
-    </header>
-    <main class="max-w-7xl mx-auto px-6 py-8">
-      <slot />
-    </main>
-  </div>
-</template>
-
 <script setup lang="ts">
-const { locale, locales } = useI18n();
+import type { NavigationMenuItem } from '@nuxt/ui'
+
+const { t, locale, locales } = useI18n()
+
+const open = ref(false)
+
+const links = computed<NavigationMenuItem[][]>(() => [[{
+  label: t('nav.overview'),
+  icon: 'i-lucide-house',
+  to: '/',
+  onSelect: () => { open.value = false },
+}, {
+  label: t('nav.workspaces'),
+  icon: 'i-lucide-folder-open',
+  to: '/workspaces',
+  onSelect: () => { open.value = false },
+}, {
+  label: t('nav.search'),
+  icon: 'i-lucide-search',
+  to: '/search',
+  onSelect: () => { open.value = false },
+}]])
 
 const localeItems = computed(() =>
   (locales.value as Array<{ code: string; name: string }>).map((l) => ({
     label: l.name,
     value: l.code,
   })),
-);
+)
 </script>
+
+<template>
+  <UDashboardGroup>
+    <UDashboardSidebar
+      id="default"
+      v-model:open="open"
+      collapsible
+      class="bg-elevated/25"
+    >
+      <template #header="{ collapsed }">
+        <div class="flex items-center gap-2 px-2 py-1">
+          <UIcon name="i-lucide-code-xml" class="size-6 text-primary shrink-0" />
+          <span v-if="!collapsed" class="font-semibold truncate">Codebase Indexer</span>
+        </div>
+      </template>
+
+      <template #default="{ collapsed }">
+        <UNavigationMenu
+          :collapsed="collapsed"
+          :items="links[0]"
+          orientation="vertical"
+        />
+      </template>
+
+      <template #footer="{ collapsed }">
+        <div v-if="!collapsed" class="px-3 py-2">
+          <USelect
+            v-model="locale"
+            :items="localeItems"
+            size="xs"
+            class="w-full"
+          />
+        </div>
+      </template>
+    </UDashboardSidebar>
+
+    <slot />
+  </UDashboardGroup>
+</template>
