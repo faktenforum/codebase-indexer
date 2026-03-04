@@ -77,6 +77,7 @@ const AST_SUPPORTED_EXTENSIONS = new Set([
   '.yml',
   '.ex',
   '.exs',
+  '.sql',
 ]);
 
 function createSegmentHash(

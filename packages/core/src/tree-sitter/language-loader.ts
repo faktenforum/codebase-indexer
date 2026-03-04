@@ -32,6 +32,7 @@ import zigQuery from './queries/zig.js';
 import tomlQuery from './queries/toml.js';
 import yamlQuery from './queries/yaml.js';
 import elixirQuery from './queries/elixir.js';
+import sqlQuery from './queries/sql.js';
 
 const require = createRequire(import.meta.url);
 
@@ -293,6 +294,11 @@ export async function loadRequiredLanguageParsers(filesToParse: string[]): Promi
       case 'ex': {
         language = await loadLanguage('elixir');
         query = new Query(language, elixirQuery);
+        break;
+      }
+      case 'sql': {
+        language = await loadLanguage('sql', path.join(customWasmDir, 'tree-sitter-sql.wasm'));
+        query = new Query(language, sqlQuery);
         break;
       }
       default:
