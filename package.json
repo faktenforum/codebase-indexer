@@ -10,7 +10,8 @@
     "build:vscode": "pnpm --filter @codebase-indexer/vscode build",
     "build:web": "pnpm --filter @codebase-indexer/web build",
     "dev:web": "pnpm --filter @codebase-indexer/web dev",
-    "check": "pnpm -r check"
+    "check": "pnpm -r check",
+    "build:wasm:vala": "tree-sitter build --wasm tree-sitter/vala -o packages/core/wasm/tree-sitter-vala.wasm"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -1,0 +1,3 @@
+[submodule "tree-sitter/vala"]
+	path = tree-sitter/vala
+	url = https://github.com/vala-lang/tree-sitter-vala

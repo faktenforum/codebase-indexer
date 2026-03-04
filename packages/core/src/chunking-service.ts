@@ -63,6 +63,9 @@ const AST_SUPPORTED_EXTENSIONS = new Set([
   '.swift',
   '.cs',
   '.vue',
+  '.vala',
+  '.vapi',
+  '.svelte',
 ]);
 
 function createSegmentHash(
@@ -155,7 +158,8 @@ function buildParentScope(node: TreeSitterNode): string {
       type === 'record_declaration' ||
       type === 'protocol_declaration' ||
       type === 'extension_declaration' ||
-      type === 'singleton_class'
+      type === 'singleton_class' ||
+      type === 'errordomain_declaration'
     ) {
       const nameNode = current.childForFieldName('name');
       if (nameNode) {

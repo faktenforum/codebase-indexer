@@ -55,6 +55,8 @@ export const SUPPORTED_EXTENSIONS = new Set([
   '.scala',
   '.ex',
   '.exs',
+  '.vala',
+  '.vapi',
 ]);
 
 export const SUPPORTED_FILENAMES = new Set([

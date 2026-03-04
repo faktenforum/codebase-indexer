@@ -23,6 +23,8 @@ import phpQuery from './queries/php.js';
 import swiftQuery from './queries/swift.js';
 import csharpQuery from './queries/csharp.js';
 import vueQuery from './queries/vue.js';
+import valaQuery from './queries/vala.js';
+import svelteQuery from './queries/svelte.js';
 
 const require = createRequire(import.meta.url);
 
@@ -39,16 +41,24 @@ const languageCache = new Map<string, LanguageT>();
 const failedLanguages = new Set<string>();
 const parserCache = new Map<string, { parser: ParserT; query: QueryT }>();
 
-async function loadLanguage(langName: string): Promise<LanguageT> {
+// Directory containing custom-built WASM files (e.g. for Vala)
+const customWasmDir = path.resolve(import.meta.dirname, '../../wasm');
+
+async function loadLanguage(langName: string, customWasmPath?: string): Promise<LanguageT> {
   if (failedLanguages.has(langName)) {
     throw new Error(`Language ${langName} previously failed to load`);
   }
   const cached = languageCache.get(langName);
   if (cached) return cached;
 
-  const wasmPackagePath = require.resolve('tree-sitter-wasms/package.json');
-  const wasmDir = path.join(path.dirname(wasmPackagePath), 'out');
-  const wasmPath = path.join(wasmDir, `tree-sitter-${langName}.wasm`);
+  let wasmPath: string;
+  if (customWasmPath) {
+    wasmPath = customWasmPath;
+  } else {
+    const wasmPackagePath = require.resolve('tree-sitter-wasms/package.json');
+    const wasmDir = path.join(path.dirname(wasmPackagePath), 'out');
+    wasmPath = path.join(wasmDir, `tree-sitter-${langName}.wasm`);
+  }
 
   try {
     const { Language } = require('web-tree-sitter') as typeof import('web-tree-sitter');
@@ -219,6 +229,21 @@ export async function loadRequiredLanguageParsers(filesToParse: string[]): Promi
       case 'vue': {
         language = await loadLanguage('vue');
         query = new Query(language, vueQuery);
+        break;
+      }
+      case 'vala':
+      case 'vapi': {
+        language = await loadLanguage('vala', path.join(customWasmDir, 'tree-sitter-vala.wasm'));
+        query = new Query(language, valaQuery);
+        break;
+      }
+      case 'svelte': {
+        const svelteWasmPath = path.join(
+          path.dirname(require.resolve('tree-sitter-svelte/package.json')),
+          'tree-sitter-svelte.wasm',
+        );
+        language = await loadLanguage('svelte', svelteWasmPath);
+        query = new Query(language, svelteQuery);
         break;
       }
       default:
