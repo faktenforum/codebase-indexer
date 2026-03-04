@@ -33,7 +33,7 @@ export type {
 export { EmbeddingService } from './embedding-service.js';
 export { LanceDBStore } from './lancedb-store.js';
 export type { LanceDBStoreConfig } from './lancedb-store.js';
-export { chunkFile, chunkFileWithAst, createFileHash } from './chunking-service.js';
+export { chunkFile, chunkFileWithAst, createFileHash } from './chunking/index.js';
 export { loadRequiredLanguageParsers } from './tree-sitter/language-loader.js';
 export type { LanguageParser } from './tree-sitter/language-loader.js';
 

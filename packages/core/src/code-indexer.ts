@@ -1,19 +1,19 @@
 /**
  * Code indexer orchestrator: scan, filter, chunk, embed, store, search.
- * Class-based refactoring of the original code-index-service.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync, existsSync, mkdirSync, openSync, closeSync, unlinkSync, type Dirent } from 'node:fs';
-import { join, relative, extname } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
-import ignore, { type Ignore } from 'ignore';
 
 import type { CodeIndexConfig } from './config.js';
 import { resolveEmbeddingConfig } from './config.js';
 import { EmbeddingService } from './embedding-service.js';
 import { LanceDBStore } from './lancedb-store.js';
-import { createFileHash, chunkFileWithAst } from './chunking-service.js';
+import { createFileHash, chunkFileWithAst } from './chunking/index.js';
+import { acquireLock, releaseLockFile, LOCK_WAIT_MS, LOCK_MAX_RETRIES } from './lock-manager.js';
+import { loadIgnorePatterns, listFilesRecursive, loadFileHashes, saveFileHashes } from './file-scanner.js';
 import type {
   CodeBlock,
   SearchResult,
@@ -27,20 +27,11 @@ import type {
 } from './types.js';
 import {
   DEFAULT_INDEX_DIR,
-  SUPPORTED_EXTENSIONS,
-  SUPPORTED_FILENAMES,
-  DIRS_TO_IGNORE,
-  FILES_TO_IGNORE,
   MAX_FILE_SIZE_BYTES,
   EMBEDDING_BATCH_SIZE,
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SCORE,
 } from './constants.js';
-
-const FILE_HASHES_BASENAME = 'file_hashes';
-const LOCK_FILENAME = '.indexing.lock';
-const LOCK_WAIT_MS = 1000;
-const LOCK_MAX_RETRIES = 10;
 
 export class CodeIndexer {
   private readonly config: CodeIndexConfig;
@@ -56,31 +47,19 @@ export class CodeIndexer {
     this.embeddingService = new EmbeddingService(resolveEmbeddingConfig(config.embedding));
   }
 
-  /**
-   * Register a progress callback for indexing status updates.
-   */
   onProgress(callback: ProgressCallback): void {
     this.progressCallbacks.push(callback);
   }
 
-  /**
-   * Remove a previously registered progress callback.
-   */
   offProgress(callback: ProgressCallback): void {
     this.progressCallbacks = this.progressCallbacks.filter((cb) => cb !== callback);
   }
 
-  /**
-   * Whether code indexing is enabled.
-   */
   isEnabled(): boolean {
     if (this.config.enabled === false) return false;
     return this.embeddingService.isConfigured();
   }
 
-  /**
-   * Get in-memory index status for a workspace.
-   */
   getIndexStatus(workspacePath: string): IndexState {
     const cached = this.statusByWorkspace.get(workspacePath);
     if (cached) {
@@ -94,9 +73,6 @@ export class CodeIndexer {
     return { status: 'standby', message: '', files_processed: 0, files_total: 0 };
   }
 
-  /**
-   * Returns indexed file count from store when index exists and is complete.
-   */
   async getIndexStats(workspacePath: string): Promise<IndexStats | null> {
     if (!this.isEnabled()) return null;
     const indexPath = this.resolveIndexPath(workspacePath);
@@ -116,10 +92,6 @@ export class CodeIndexer {
     }
   }
 
-  /**
-   * Full index of a workspace.
-   * Uses shared cache when the workspace has a git remote URL.
-   */
   async indexWorkspace(workspacePath: string, options?: IndexOptions): Promise<IndexState> {
     const force = options?.force ?? false;
 
@@ -134,7 +106,7 @@ export class CodeIndexer {
     // Acquire exclusive lock; retry up to LOCK_MAX_RETRIES times
     let releaseLock: (() => void) | null = null;
     for (let attempt = 0; attempt < LOCK_MAX_RETRIES; attempt++) {
-      releaseLock = this.acquireLock(indexPath);
+      releaseLock = acquireLock(indexPath);
       if (releaseLock) break;
       // Another process is indexing; if already complete, skip
       const checkStore = new LanceDBStore({ dbPath: indexPath, vectorSize });
@@ -162,8 +134,9 @@ export class CodeIndexer {
 
     try {
       this.setStatus(workspacePath, 'indexing', 'Listing files...', 0, 0);
-      const ignoreInstance = this.loadIgnorePatterns(workspacePath);
-      const filePaths = this.listFilesRecursive(workspacePath, workspacePath, ignoreInstance);
+      const indexDir = this.getIndexDir();
+      const ignoreInstance = loadIgnorePatterns(workspacePath, indexDir);
+      const filePaths = listFilesRecursive(workspacePath, workspacePath, ignoreInstance);
       const total = filePaths.length;
       this.setStatus(workspacePath, 'indexing', 'Initializing store...', 0, total);
 
@@ -172,7 +145,7 @@ export class CodeIndexer {
         await store.markIndexingIncomplete();
       }
 
-      const prevHashes = force ? {} : this.loadFileHashes(indexPath, workspacePath);
+      const prevHashes = force ? {} : loadFileHashes(indexPath, workspacePath);
       const currentHashes: Record<string, string> = {};
       const toIndex: string[] = [];
       const toDelete: string[] = [];
@@ -216,8 +189,6 @@ export class CodeIndexer {
           const blocks = await chunkFileWithAst(relPath, content, fileHash);
           allBlocks.push(...blocks);
         }
-        // Embed first, then delete old chunks, then insert new ones.
-        // This order prevents data loss if embedding fails mid-batch.
         if (allBlocks.length > 0) {
           const texts = allBlocks.map((b) => b.content);
           const vectors = await this.embeddingService.embedBatch(texts);
@@ -230,7 +201,7 @@ export class CodeIndexer {
         this.setStatus(workspacePath, 'indexing', `Indexed ${processed}/${toIndex.length} files`, processed, total);
       }
 
-      this.saveFileHashes(indexPath, workspacePath, currentHashes);
+      saveFileHashes(indexPath, workspacePath, currentHashes);
       await store.markIndexingComplete(total);
       await store.optimize();
       await store.createFtsIndex();
@@ -247,11 +218,6 @@ export class CodeIndexer {
     }
   }
 
-  /**
-   * Search in workspace code index.
-   * Supports three modes: 'vector' (semantic), 'fts' (keyword), 'hybrid' (both + RRF).
-   * Default mode is 'hybrid'.
-   */
   async searchWorkspace(
     workspacePath: string,
     query: string,
@@ -286,7 +252,6 @@ export class CodeIndexer {
         const [queryVector] = await this.embeddingService.embedBatch([query]);
         results = await store.search(queryVector!, searchOpts);
       } else {
-        // hybrid: vector + FTS + RRF
         const [queryVector] = await this.embeddingService.embedBatch([query]);
         results = await store.hybridSearch(queryVector!, query, searchOpts);
       }
@@ -300,9 +265,6 @@ export class CodeIndexer {
     }
   }
 
-  /**
-   * Whether the workspace has an existing index (with data and marked complete).
-   */
   async hasIndex(workspacePath: string): Promise<boolean> {
     if (!this.isEnabled()) return false;
     const indexPath = this.resolveIndexPath(workspacePath);
@@ -319,9 +281,6 @@ export class CodeIndexer {
     }
   }
 
-  /**
-   * List all distinct indexed file paths for a workspace.
-   */
   async listIndexedFiles(workspacePath: string): Promise<string[]> {
     if (!this.isEnabled()) return [];
     const indexPath = this.resolveIndexPath(workspacePath);
@@ -345,9 +304,6 @@ export class CodeIndexer {
     }
   }
 
-  /**
-   * List stored code index chunks for a given file path or path prefix.
-   */
   async listChunksInIndex(
     workspacePath: string,
     pathFilter: string,
@@ -388,10 +344,6 @@ export class CodeIndexer {
     }
   }
 
-  /**
-   * Re-chunk a single file using the active chunking logic (AST + fallback),
-   * without writing embeddings or modifying the index.
-   */
   async rechunkFileForDebug(
     workspacePath: string,
     relativePath: string,
@@ -424,6 +376,16 @@ export class CodeIndexer {
     }
   }
 
+  /**
+   * Force-releases a stale index lock for a workspace.
+   */
+  releaseLock(workspacePath: string): boolean {
+    const indexPath = this.resolveIndexPath(workspacePath);
+    const released = releaseLockFile(indexPath);
+    if (released) this.setStatus(workspacePath, 'standby', '', 0, 0);
+    return released;
+  }
+
   // --- Private helpers ---
 
   private setStatus(
@@ -452,11 +414,6 @@ export class CodeIndexer {
     return this.config.sharedIndexBaseDir;
   }
 
-  /**
-   * Resolves the LanceDB directory for a workspace.
-   * If shared cache is configured and workspace has a git remote, uses shared cache.
-   * Otherwise falls back to workspace-local path.
-   */
   private resolveIndexPath(workspacePath: string): string {
     const sharedBase = this.getSharedIndexBaseDir();
     if (sharedBase) {
@@ -475,165 +432,6 @@ export class CodeIndexer {
       }
     }
     return join(workspacePath, this.getIndexDir());
-  }
-
-  /**
-   * Force-releases a stale index lock for a workspace.
-   * Returns true if a lock was removed, false if none existed.
-   */
-  releaseLock(workspacePath: string): boolean {
-    const indexPath = this.resolveIndexPath(workspacePath);
-    const lockPath = join(indexPath, LOCK_FILENAME);
-    if (existsSync(lockPath)) {
-      try {
-        unlinkSync(lockPath);
-        this.setStatus(workspacePath, 'standby', '', 0, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
-
-  private acquireLock(indexDir: string): (() => void) | null {
-    if (!existsSync(indexDir)) mkdirSync(indexDir, { recursive: true });
-    const lockPath = join(indexDir, LOCK_FILENAME);
-    try {
-      const fd = openSync(lockPath, 'wx');
-      closeSync(fd);
-      return () => {
-        try { unlinkSync(lockPath); } catch { /* ignore */ }
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  private fileHashesFilename(workspacePath: string): string {
-    try {
-      const branch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: workspacePath,
-        encoding: 'utf-8',
-        timeout: 3000,
-      }).trim();
-      if (branch && branch !== 'HEAD') {
-        const safeBranch = branch.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64);
-        return `${FILE_HASHES_BASENAME}.${safeBranch}.json`;
-      }
-    } catch { /* no git or detached HEAD */ }
-    return `${FILE_HASHES_BASENAME}.json`;
-  }
-
-  private readHashesFile(fullPath: string): Record<string, string> | null {
-    if (!existsSync(fullPath)) return null;
-    try {
-      const raw = readFileSync(fullPath, 'utf-8');
-      const data = JSON.parse(raw) as Record<string, string>;
-      return typeof data === 'object' && data !== null ? data : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private loadFileHashes(indexPath: string, workspacePath: string): Record<string, string> {
-    const filename = this.fileHashesFilename(workspacePath);
-    const branchPath = join(indexPath, filename);
-    const fromBranch = this.readHashesFile(branchPath);
-    if (fromBranch) return fromBranch;
-
-    const fallbackBranches = ['main', 'master'];
-    for (const branch of fallbackBranches) {
-      const fallbackPath = join(indexPath, `${FILE_HASHES_BASENAME}.${branch}.json`);
-      const fromFallback = this.readHashesFile(fallbackPath);
-      if (fromFallback) return fromFallback;
-    }
-
-    return {};
-  }
-
-  private saveFileHashes(indexPath: string, workspacePath: string, hashes: Record<string, string>): void {
-    if (!existsSync(indexPath)) mkdirSync(indexPath, { recursive: true });
-    writeFileSync(join(indexPath, this.fileHashesFilename(workspacePath)), JSON.stringify(hashes, null, 0), 'utf-8');
-  }
-
-  private loadIgnorePatterns(workspacePath: string): Ignore {
-    const ig = ignore();
-    const gitignorePath = join(workspacePath, '.gitignore');
-    if (existsSync(gitignorePath)) {
-      try {
-        const content = readFileSync(gitignorePath, 'utf-8');
-        ig.add(content);
-        ig.add('.gitignore');
-      } catch {
-        // ignore read errors
-      }
-    }
-    const indexDir = this.getIndexDir();
-    const codeIndexIgnorePath = join(workspacePath, indexDir, 'codebase-indexer.ignore');
-    if (existsSync(codeIndexIgnorePath)) {
-      try {
-        ig.add(readFileSync(codeIndexIgnorePath, 'utf-8'));
-      } catch {
-        // ignore
-      }
-    }
-    return ig;
-  }
-
-  private addNestedGitignore(dir: string, workspaceRoot: string, ignoreInstance: Ignore): void {
-    if (dir === workspaceRoot) return;
-    const gitignorePath = join(dir, '.gitignore');
-    if (!existsSync(gitignorePath)) return;
-    try {
-      const content = readFileSync(gitignorePath, 'utf-8');
-      const relDir = relative(workspaceRoot, dir).replace(/\\/g, '/');
-      for (const raw of content.split('\n')) {
-        const line = raw.trim();
-        if (!line || line.startsWith('#')) continue;
-        if (line.startsWith('!')) {
-          const pattern = line.slice(1);
-          ignoreInstance.add(`!${relDir}/${pattern.startsWith('/') ? pattern.slice(1) : pattern}`);
-        } else if (line.startsWith('/')) {
-          ignoreInstance.add(`${relDir}${line}`);
-        } else {
-          ignoreInstance.add(`${relDir}/${line}`);
-        }
-      }
-    } catch {
-      // ignore read errors
-    }
-  }
-
-  private listFilesRecursive(dir: string, workspaceRoot: string, ignoreInstance: Ignore): string[] {
-    const results: string[] = [];
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];
-    } catch {
-      return results;
-    }
-
-    this.addNestedGitignore(dir, workspaceRoot, ignoreInstance);
-
-    for (const entry of entries) {
-      const name = entry.name as unknown as string;
-      const fullPath = join(dir, name);
-      const relPath = relative(workspaceRoot, fullPath).replace(/\\/g, '/');
-
-      if (entry.isDirectory()) {
-        if (DIRS_TO_IGNORE.has(name)) continue;
-        if (ignoreInstance.ignores(relPath + '/')) continue;
-        results.push(...this.listFilesRecursive(fullPath, workspaceRoot, ignoreInstance));
-      } else if (entry.isFile()) {
-        if (FILES_TO_IGNORE.has(name)) continue;
-        const ext = extname(name).toLowerCase();
-        if (!SUPPORTED_EXTENSIONS.has(ext) && !SUPPORTED_FILENAMES.has(name)) continue;
-        if (ignoreInstance.ignores(relPath)) continue;
-        results.push(relPath);
-      }
-    }
-    return results;
   }
 }
 

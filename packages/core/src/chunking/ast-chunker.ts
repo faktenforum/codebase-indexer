@@ -1,16 +1,3 @@
-import { createHash } from 'node:crypto';
-import { extname } from 'node:path';
-import type { CodeBlock, ChunkKind } from './types.js';
-import {
-  MAX_CHUNK_CHARS,
-  MIN_CHUNK_CHARS,
-  MIN_CHUNK_REMAINDER_CHARS,
-  MAX_CHARS_TOLERANCE_FACTOR,
-  MERGE_MAX_CHUNK_CHARS,
-} from './constants.js';
-import type { Node as TreeSitterNode } from 'web-tree-sitter';
-import { loadRequiredLanguageParsers } from './tree-sitter/language-loader.js';
-
 // The AST-based chunking flow and helpers are inspired by Kilo Code's CodeParser
 // (kilocode/src/services/code-index/processors/parser.ts) and reuse the same
 // min/max character heuristics. Kilo Code is licensed under the Apache License,
@@ -20,18 +7,24 @@ import { loadRequiredLanguageParsers } from './tree-sitter/language-loader.js';
 // by aider's TreeContext approach (aider/repomap.py) and the docs-mcp-server's
 // hierarchical metadata strategy (docs-mcp-server/src/splitter/).
 
-function detectLanguageFromPath(filePath: string): string | undefined {
-  const ext = extname(filePath).toLowerCase();
-  if (!ext) return undefined;
-  return ext.slice(1);
-}
-
-/**
- * Create SHA-256 hash of file content for change detection.
- */
-export function createFileHash(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
-}
+import { extname } from 'node:path';
+import type { CodeBlock } from '../types.js';
+import {
+  MAX_CHUNK_CHARS,
+  MIN_CHUNK_CHARS,
+  MAX_CHARS_TOLERANCE_FACTOR,
+  MERGE_MAX_CHUNK_CHARS,
+} from '../constants.js';
+import { loadRequiredLanguageParsers } from '../tree-sitter/language-loader.js';
+import { detectLanguageFromPath, createSegmentHash } from './utils.js';
+import { chunkFile, chunkTextByLines } from './line-chunker.js';
+import {
+  captureNameToKind,
+  extractSignature,
+  buildParentScope,
+  collectPrecedingComments,
+  type CapturedNode,
+} from './ast-helpers.js';
 
 // Extensions that use AST-aware chunking (tree-sitter) before falling back to line-based chunking.
 const AST_SUPPORTED_EXTENSIONS = new Set([
@@ -79,311 +72,6 @@ const AST_SUPPORTED_EXTENSIONS = new Set([
   '.exs',
   '.sql',
 ]);
-
-function createSegmentHash(
-  filePath: string,
-  startLine: number,
-  endLine: number,
-  content: string,
-): string {
-  const preview = content.slice(0, 100);
-  return createHash('sha256')
-    .update(`${filePath}-${startLine}-${endLine}-${content.length}-${preview}`)
-    .digest('hex');
-}
-
-/**
- * Map a tree-sitter capture name (e.g. "definition.function") to our ChunkKind.
- */
-function captureNameToKind(captureName: string): ChunkKind {
-  if (captureName.includes('function')) return 'function';
-  if (captureName.includes('method')) return 'method';
-  if (captureName.includes('class')) return 'class';
-  if (captureName.includes('interface')) return 'interface';
-  if (captureName.includes('type')) return 'type';
-  if (captureName.includes('enum')) return 'enum';
-  if (captureName.includes('module')) return 'module';
-  if (captureName.includes('namespace')) return 'namespace';
-  if (captureName.includes('struct')) return 'class';
-  if (captureName.includes('trait')) return 'interface';
-  if (captureName.includes('protocol')) return 'interface';
-  if (captureName.includes('object')) return 'class';
-  if (captureName.includes('record')) return 'class';
-  if (captureName.includes('package')) return 'module';
-  if (captureName.includes('decorator')) return 'decorator';
-  return 'fallback';
-}
-
-/**
- * Extract the signature (first meaningful lines) of a code node.
- * For a function: `async function search(query: string, options?: SearchOptions) {`
- * For a class: `export class SearchService {`
- * Returns the signature text and number of lines it spans.
- */
-function extractSignature(text: string): string {
-  const lines = text.split('\n');
-  let braceDepth = 0;
-  let parenDepth = 0;
-  const sigLines: string[] = [];
-
-  for (const line of lines) {
-    sigLines.push(line);
-    for (const ch of line) {
-      if (ch === '(') parenDepth++;
-      if (ch === ')') parenDepth--;
-      if (ch === '{') braceDepth++;
-    }
-    // Signature ends when we hit the opening brace at depth 1 and parens are balanced
-    if (braceDepth >= 1 && parenDepth <= 0) break;
-    // Safety: don't take more than 5 lines for a signature
-    if (sigLines.length >= 5) break;
-  }
-
-  return sigLines.join('\n');
-}
-
-/**
- * Build a scope path like "ClassName.methodName" by walking up the AST.
- */
-function buildParentScope(node: TreeSitterNode): string {
-  const parts: string[] = [];
-  let current = node.parent;
-  while (current) {
-    const type = current.type;
-    if (
-      type === 'class_declaration' ||
-      type === 'abstract_class_declaration' ||
-      type === 'class_definition' ||
-      type === 'interface_declaration' ||
-      type === 'enum_declaration' ||
-      type === 'function_declaration' ||
-      type === 'method_definition' ||
-      type === 'function_definition' ||
-      type === 'async_function_definition' ||
-      type === 'impl_item' ||
-      type === 'module' ||
-      type === 'internal_module' ||
-      type === 'object_declaration' ||
-      type === 'companion_object' ||
-      type === 'trait_declaration' ||
-      type === 'namespace_declaration' ||
-      type === 'struct_declaration' ||
-      type === 'record_declaration' ||
-      type === 'protocol_declaration' ||
-      type === 'extension_declaration' ||
-      type === 'singleton_class' ||
-      type === 'errordomain_declaration' ||
-      type === 'trait_definition' ||           // Scala
-      type === 'object_definition' ||          // Scala
-      type === 'package_clause'                // Scala
-    ) {
-      const nameNode = current.childForFieldName('name');
-      if (nameNode) {
-        parts.unshift(nameNode.text);
-      }
-    }
-    current = current.parent;
-  }
-  return parts.join('.');
-}
-
-/**
- * Chunk a file's content into code blocks by line boundaries.
- * Oversized lines are split by character. Re-balances to avoid tiny remainder chunks.
- */
-export function chunkFile(
-  filePath: string,
-  content: string,
-  fileHash: string,
-): CodeBlock[] {
-  const seenSegmentHashes = new Set<string>();
-  const lines = content.split('\n');
-  const baseStartLine = 1;
-  return chunkTextByLines(filePath, fileHash, lines, seenSegmentHashes, baseStartLine);
-}
-
-interface ChunkTextOptions {
-  kind?: ChunkKind;
-  symbol?: string;
-  parentScope?: string;
-  contextPrefix?: string;
-}
-
-function chunkTextByLines(
-  filePath: string,
-  fileHash: string,
-  lines: string[],
-  seenSegmentHashes: Set<string>,
-  baseStartLine: number,
-  options?: ChunkTextOptions,
-): CodeBlock[] {
-  const chunks: CodeBlock[] = [];
-  const effectiveMaxChars = Math.floor(MAX_CHUNK_CHARS * MAX_CHARS_TOLERANCE_FACTOR);
-  const prefix = options?.contextPrefix ?? '';
-  const prefixLength = prefix ? prefix.length + 1 : 0; // +1 for newline separator
-  const adjustedMax = effectiveMaxChars - prefixLength;
-  let currentChunkLines: string[] = [];
-  let currentChunkLength = 0;
-  let chunkStartLineIndex = 0;
-  let chunkIndex = 0;
-
-  const finalizeChunk = (endLineIndex: number) => {
-    if (currentChunkLength >= MIN_CHUNK_CHARS && currentChunkLines.length > 0) {
-      const rawContent = currentChunkLines.join('\n');
-      // Add context prefix to continuation sub-chunks (not the first one)
-      const chunkContent = (prefix && chunkIndex > 0)
-        ? `${prefix}\n${rawContent}`
-        : rawContent;
-      const startLine = baseStartLine + chunkStartLineIndex;
-      const endLine = baseStartLine + endLineIndex;
-      const segmentHash = createSegmentHash(filePath, startLine, endLine, chunkContent);
-
-      if (!seenSegmentHashes.has(segmentHash)) {
-        seenSegmentHashes.add(segmentHash);
-        chunks.push({
-          file_path: filePath,
-          start_line: startLine,
-          end_line: endLine,
-          content: chunkContent,
-          file_hash: fileHash,
-          segment_hash: segmentHash,
-          language: detectLanguageFromPath(filePath),
-          kind: (prefix && chunkIndex > 0) ? 'continuation' : (options?.kind),
-          symbol: options?.symbol,
-          parentScope: (prefix && chunkIndex > 0)
-            ? [options?.parentScope, options?.symbol].filter(Boolean).join('.')
-            : options?.parentScope,
-        });
-      }
-      chunkIndex++;
-    }
-    currentChunkLines = [];
-    currentChunkLength = 0;
-    chunkStartLineIndex = endLineIndex + 1;
-  };
-
-  const createSegmentBlock = (
-    segment: string,
-    originalLineNumber: number,
-  ) => {
-    const segmentHash = createSegmentHash(filePath, originalLineNumber, originalLineNumber, segment);
-
-    if (!seenSegmentHashes.has(segmentHash)) {
-      seenSegmentHashes.add(segmentHash);
-      chunks.push({
-        file_path: filePath,
-        start_line: originalLineNumber,
-        end_line: originalLineNumber,
-        content: segment,
-        file_hash: fileHash,
-        segment_hash: segmentHash,
-        language: detectLanguageFromPath(filePath),
-        kind: options?.kind,
-        symbol: options?.symbol,
-        parentScope: options?.parentScope,
-      });
-    }
-  };
-
-  const maxForLines = adjustedMax > MIN_CHUNK_CHARS ? adjustedMax : effectiveMaxChars;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const lineLength = line.length + (i < lines.length - 1 ? 1 : 0);
-    const originalLineNumber = baseStartLine + i;
-
-    if (lineLength > maxForLines) {
-      if (currentChunkLines.length > 0) {
-        finalizeChunk(i - 1);
-      }
-      let remainingLineContent = line;
-      while (remainingLineContent.length > 0) {
-        const segment = remainingLineContent.substring(0, MAX_CHUNK_CHARS);
-        remainingLineContent = remainingLineContent.substring(MAX_CHUNK_CHARS);
-        createSegmentBlock(segment, originalLineNumber);
-      }
-      chunkStartLineIndex = i + 1;
-      continue;
-    }
-
-    if (currentChunkLength > 0 && currentChunkLength + lineLength > maxForLines) {
-      let remainderLength = 0;
-      for (let j = i; j < lines.length; j++) {
-        remainderLength += lines[j]!.length + (j < lines.length - 1 ? 1 : 0);
-      }
-
-      let splitIndex = i - 1;
-      if (
-        currentChunkLength >= MIN_CHUNK_CHARS &&
-        remainderLength < MIN_CHUNK_REMAINDER_CHARS &&
-        currentChunkLines.length > 1
-      ) {
-        for (let k = i - 2; k >= chunkStartLineIndex; k--) {
-          const potentialChunkLines = lines.slice(chunkStartLineIndex, k + 1);
-          const potentialChunkLength = potentialChunkLines.join('\n').length + 1;
-          const potentialNextChunkLines = lines.slice(k + 1);
-          const potentialNextChunkLength = potentialNextChunkLines.join('\n').length + 1;
-          if (
-            potentialChunkLength >= MIN_CHUNK_CHARS &&
-            potentialNextChunkLength >= MIN_CHUNK_REMAINDER_CHARS
-          ) {
-            splitIndex = k;
-            break;
-          }
-        }
-      }
-
-      finalizeChunk(splitIndex);
-
-      if (i >= chunkStartLineIndex) {
-        currentChunkLines.push(line);
-        currentChunkLength += lineLength;
-      } else {
-        i = chunkStartLineIndex - 1;
-        continue;
-      }
-    } else {
-      currentChunkLines.push(line);
-      currentChunkLength += lineLength;
-    }
-  }
-
-  if (currentChunkLines.length > 0) {
-    finalizeChunk(lines.length - 1);
-  }
-
-  return chunks;
-}
-
-/**
- * Information about a captured AST node including its symbol metadata.
- */
-interface CapturedNode {
-  node: TreeSitterNode;
-  symbol?: string;
-  kind: ChunkKind;
-}
-
-/**
- * Collect preceding comment nodes (JSDoc, line comments) that belong to
- * the given node. Walks backwards through previous siblings, skipping
- * blank lines, and collects contiguous comment blocks.
- */
-function collectPrecedingComments(node: TreeSitterNode): TreeSitterNode[] {
-  const comments: TreeSitterNode[] = [];
-  let sibling = node.previousNamedSibling;
-
-  while (sibling) {
-    if (sibling.type === 'comment') {
-      comments.unshift(sibling);
-      sibling = sibling.previousNamedSibling;
-    } else {
-      break;
-    }
-  }
-
-  return comments;
-}
 
 /**
  * Process AST-captured nodes into chunks with metadata.
@@ -627,8 +315,6 @@ export async function chunkFileWithAst(
     }
 
     // 1. Extract captured nodes with symbol metadata
-    //    Captures come in pairs: @name.definition.X (the name) and @definition.X (the full node)
-    //    We want the full node captures and extract the symbol from the name captures.
     const capturedNodes: CapturedNode[] = [];
     const seenNodeIds = new Set<number>();
 
@@ -669,10 +355,7 @@ export async function chunkFileWithAst(
       return chunkFile(filePath, content, fileHash);
     }
 
-    // 2. Filter nodes to avoid overlap:
-    //    a) If a parent fits in one chunk, skip its children (parent is the chunk).
-    //    b) If a parent is too large AND has children in the list, skip the parent
-    //       (children become chunks, fillGaps handles code between them).
+    // 2. Filter nodes to avoid overlap
     const maxAllowed = Math.floor(MAX_CHUNK_CHARS * MAX_CHARS_TOLERANCE_FACTOR);
 
     const filteredNodes = capturedNodes.filter((candidate) => {
