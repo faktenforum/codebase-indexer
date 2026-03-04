@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { LanceDBStore } from '@codebase-indexer/core';
 import type { CodeIndexer } from '@codebase-indexer/core';
+import { log, logError } from '../logger';
 
 export class ClearCommand {
   private indexer: CodeIndexer;
@@ -17,6 +18,7 @@ export class ClearCommand {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
       vscode.window.showErrorMessage('No workspace folder open.');
+      logError('Clear: no workspace folder open');
       return;
     }
 
@@ -34,11 +36,15 @@ export class ClearCommand {
     const dimensions = config.get<number>('embedding.dimensions') || 1536;
     const dbPath = vscode.Uri.joinPath(folder.uri, indexDir).fsPath;
 
+    log(`Clearing index at ${dbPath}`);
+
     const store = new LanceDBStore({ dbPath, vectorSize: dimensions });
     try {
       await store.deleteAll();
+      log('Index cleared successfully');
       vscode.window.showInformationMessage('Code index cleared.');
     } catch (err) {
+      logError('Failed to clear index', err);
       vscode.window.showErrorMessage(`Failed to clear index: ${(err as Error).message}`);
     }
   }

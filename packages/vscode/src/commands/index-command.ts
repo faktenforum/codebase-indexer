@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { CodeIndexer } from '@codebase-indexer/core';
+import { log, logError } from '../logger';
 
 export class IndexCommand {
   private indexer: CodeIndexer;
@@ -16,12 +17,14 @@ export class IndexCommand {
   async execute(): Promise<void> {
     if (this.isIndexing) {
       vscode.window.showWarningMessage('Indexing is already in progress.');
+      log('Index requested but already in progress.');
       return;
     }
 
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
       vscode.window.showErrorMessage('No workspace folder open.');
+      logError('No workspace folder open');
       return;
     }
 
@@ -33,9 +36,11 @@ export class IndexCommand {
 
     if (!this.indexer.isEnabled()) {
       vscode.window.showErrorMessage('Codebase Indexer: Please configure an embedding API key in settings.');
+      logError('Indexer not enabled — missing API key');
       return;
     }
 
+    log(`Starting indexing: ${folder.uri.fsPath}`);
     this.isIndexing = true;
 
     await vscode.window.withProgress(
@@ -51,6 +56,7 @@ export class IndexCommand {
             message: state.message,
             increment: pct,
           });
+          log(`Progress: ${state.files_processed}/${state.files_total} — ${state.message}`);
         };
 
         this.indexer.onProgress(progressCallback);
@@ -59,12 +65,16 @@ export class IndexCommand {
           const result = await this.indexer.indexWorkspace(folder.uri.fsPath, { force: true });
 
           if (result.status === 'indexed') {
+            log(`Indexing complete: ${result.files_total} files`);
             vscode.window.showInformationMessage(
               `Codebase indexed: ${result.files_total} files processed.`,
             );
           } else if (result.status === 'error') {
+            logError(`Indexing failed: ${result.message}`);
             vscode.window.showErrorMessage(`Indexing failed: ${result.message}`);
           }
+        } catch (err) {
+          logError('Indexing threw an exception', err);
         } finally {
           this.indexer.offProgress(progressCallback);
           this.isIndexing = false;

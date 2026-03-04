@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { CodeIndexer, SearchResult } from '@codebase-indexer/core';
+import { log, logError } from '../logger';
 
 export class SearchCommand {
   private indexer: CodeIndexer;
@@ -16,11 +17,13 @@ export class SearchCommand {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
       vscode.window.showErrorMessage('No workspace folder open.');
+      logError('Search: no workspace folder open');
       return;
     }
 
     if (!this.indexer.isEnabled()) {
       vscode.window.showErrorMessage('Codebase Indexer: Please configure an embedding API key in settings.');
+      logError('Search: indexer not enabled');
       return;
     }
 
@@ -28,6 +31,7 @@ export class SearchCommand {
     const hasIdx = await this.indexer.hasIndex(folder.uri.fsPath);
     if (!hasIdx) {
       vscode.window.showWarningMessage('No index found. Please index the workspace first.');
+      log('Search: no index found');
       return;
     }
 
@@ -39,24 +43,33 @@ export class SearchCommand {
 
     if (!query) return;
 
-    const results = await this.indexer.searchWorkspace(folder.uri.fsPath, query, {
-      limit: 20,
-    });
+    log(`Search: "${query}" in ${folder.uri.fsPath}`);
 
-    if (results.length === 0) {
-      vscode.window.showInformationMessage('No results found.');
-      return;
-    }
+    try {
+      const results = await this.indexer.searchWorkspace(folder.uri.fsPath, query, {
+        limit: 20,
+      });
 
-    const items = results.map((r) => this.toQuickPickItem(r, folder));
-    const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: `${results.length} results for "${query}"`,
-      matchOnDetail: true,
-      matchOnDescription: true,
-    });
+      log(`Search: ${results.length} results found`);
 
-    if (selected?.result) {
-      await this.openResult(selected.result, folder);
+      if (results.length === 0) {
+        vscode.window.showInformationMessage('No results found.');
+        return;
+      }
+
+      const items = results.map((r) => this.toQuickPickItem(r, folder));
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: `${results.length} results for "${query}"`,
+        matchOnDetail: true,
+        matchOnDescription: true,
+      });
+
+      if (selected?.result) {
+        await this.openResult(selected.result, folder);
+      }
+    } catch (err) {
+      logError('Search failed', err);
+      vscode.window.showErrorMessage(`Search failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -67,7 +80,15 @@ export class SearchCommand {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) return [];
     const folder = folders[0]!;
-    return this.indexer.searchWorkspace(folder.uri.fsPath, term, { limit });
+    log(`Webview search: "${term}" (limit=${limit})`);
+    try {
+      const results = await this.indexer.searchWorkspace(folder.uri.fsPath, term, { limit });
+      log(`Webview search: ${results.length} results`);
+      return results;
+    } catch (err) {
+      logError('Webview search failed', err);
+      return [];
+    }
   }
 
   private toQuickPickItem(

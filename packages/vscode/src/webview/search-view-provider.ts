@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { CodeIndexer } from '@codebase-indexer/core';
 import type { SearchCommand } from '../commands/search-command';
 import type { IndexCommand } from '../commands/index-command';
+import { log, logError } from '../logger';
 
 export class SearchViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'codebaseIndexer.searchView';
@@ -41,38 +42,57 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtmlContent(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
+      log(`Webview message: ${message.command}`);
       switch (message.command) {
         case 'search': {
-          const results = await this.searchCommand.executeForWebview(
-            message.query,
-            message.limit || 20,
-          );
-          webviewView.webview.postMessage({
-            command: 'showResults',
-            results,
-            query: message.query,
-          });
+          try {
+            const results = await this.searchCommand.executeForWebview(
+              message.query,
+              message.limit || 20,
+            );
+            webviewView.webview.postMessage({
+              command: 'showResults',
+              results,
+              query: message.query,
+            });
+          } catch (err) {
+            logError('Webview search error', err);
+          }
           break;
         }
         case 'index': {
-          await this.indexCommand.execute();
-          webviewView.webview.postMessage({ command: 'indexComplete' });
+          try {
+            await this.indexCommand.execute();
+            webviewView.webview.postMessage({ command: 'indexComplete' });
+          } catch (err) {
+            logError('Webview index error', err);
+          }
           break;
         }
         case 'checkIndex': {
           const folders = vscode.workspace.workspaceFolders;
           if (folders && folders.length > 0) {
-            const hasIdx = await this.indexer.hasIndex(folders[0]!.uri.fsPath);
-            webviewView.webview.postMessage({
-              command: 'updateIndexStatus',
-              hasIndex: hasIdx,
-              isConfigured: this.indexer.isEnabled(),
-            });
+            try {
+              const hasIdx = await this.indexer.hasIndex(folders[0]!.uri.fsPath);
+              log(`Index status: hasIndex=${hasIdx}, isConfigured=${this.indexer.isEnabled()}`);
+              webviewView.webview.postMessage({
+                command: 'updateIndexStatus',
+                hasIndex: hasIdx,
+                isConfigured: this.indexer.isEnabled(),
+              });
+            } catch (err) {
+              logError('checkIndex failed', err);
+            }
+          } else {
+            log('checkIndex: no workspace folders');
           }
           break;
         }
         case 'openFile': {
-          const uri = vscode.Uri.file(message.filePath);
+          const folders = vscode.workspace.workspaceFolders;
+          if (!folders || folders.length === 0) break;
+          log(`Opening file: ${message.filePath}:${message.startLine}`);
+          const uri = vscode.Uri.joinPath(folders[0]!.uri, message.filePath);
           const doc = await vscode.workspace.openTextDocument(uri);
           const editor = await vscode.window.showTextDocument(doc);
           const line = Math.max(0, (message.startLine || 1) - 1);

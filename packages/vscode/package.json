@@ -5,8 +5,9 @@
   "version": "0.1.0",
   "publisher": "faktenforum",
   "license": "MIT",
+  "type": "module",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.89.0"
   },
   "categories": [
     "Other"
@@ -14,7 +15,7 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "main": "./dist/extension.js",
+  "main": "./dist/extension.mjs",
   "contributes": {
     "commands": [
       {

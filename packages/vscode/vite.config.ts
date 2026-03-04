@@ -10,9 +10,9 @@ const nodeExternals = [
 export default defineConfig({
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/extension.ts'),
-      formats: ['cjs'],
-      fileName: () => 'extension.js',
+      entry: resolve(import.meta.dirname!, 'src/extension.ts'),
+      formats: ['es'],
+      fileName: () => 'extension.mjs',
     },
     outDir: 'dist',
     sourcemap: true,
@@ -26,7 +26,7 @@ export default defineConfig({
         ...nodeExternals,
       ],
       output: {
-        entryFileNames: 'extension.js',
+        entryFileNames: 'extension.mjs',
       },
     },
     target: 'node22',

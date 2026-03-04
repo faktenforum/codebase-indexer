@@ -5,6 +5,7 @@ import { IndexCommand } from './commands/index-command';
 import { SearchCommand } from './commands/search-command';
 import { ClearCommand } from './commands/clear-command';
 import { SearchViewProvider } from './webview/search-view-provider';
+import { initLogger, log, logError } from './logger';
 
 let indexer: CodeIndexer;
 let configManager: ConfigManager;
@@ -14,8 +15,17 @@ let clearCommand: ClearCommand;
 let searchProvider: SearchViewProvider;
 
 export function activate(context: vscode.ExtensionContext): void {
+  const outputChannel = initLogger();
+  context.subscriptions.push(outputChannel);
+
+  log('Activating Codebase Indexer extension...');
+
   configManager = new ConfigManager();
-  indexer = new CodeIndexer(configManager.getConfig());
+  const config = configManager.getConfig();
+  log(`Config: provider=${config.embedding.provider}, model=${config.embedding.model}, dimensions=${config.embedding.dimensions}, indexDir=${config.indexDir}`);
+  log(`API key configured: ${Boolean(config.embedding.apiKey)}`);
+
+  indexer = new CodeIndexer(config);
 
   // Commands
   indexCommand = new IndexCommand(indexer);
@@ -51,25 +61,38 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('codebaseIndexer')) {
+        log('Configuration changed, reloading...');
         reloadConfig();
       }
     }),
   );
 
+  // Log workspace folders
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    log(`Workspace folders: ${folders.map((f) => f.uri.fsPath).join(', ')}`);
+  } else {
+    log('No workspace folders open.');
+  }
+
   // Auto-index on startup (if enabled and configured)
   const autoIndex = vscode.workspace.getConfiguration('codebaseIndexer').get<boolean>('autoIndex');
   if (autoIndex && configManager.isConfigured()) {
-    const folders = vscode.workspace.workspaceFolders;
     if (folders && folders.length > 0) {
+      log('Auto-indexing workspace...');
       indexer.indexWorkspace(folders[0]!.uri.fsPath).catch((err) => {
-        console.warn('[Codebase Indexer] Auto-index failed:', (err as Error).message);
+        logError('Auto-index failed', err);
       });
     }
   }
+
+  log('Codebase Indexer activated.');
 }
 
 function reloadConfig(): void {
-  indexer = new CodeIndexer(configManager.getConfig());
+  const config = configManager.getConfig();
+  log(`Reloaded config: provider=${config.embedding.provider}, model=${config.embedding.model}`);
+  indexer = new CodeIndexer(config);
   indexCommand.setIndexer(indexer);
   searchCommand.setIndexer(indexer);
   clearCommand.setIndexer(indexer);
@@ -77,5 +100,5 @@ function reloadConfig(): void {
 }
 
 export function deactivate(): void {
-  // cleanup if needed
+  log('Codebase Indexer deactivated.');
 }
