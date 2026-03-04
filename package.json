@@ -12,7 +12,8 @@
     "dev:web": "pnpm --filter @codebase-indexer/web dev",
     "check": "pnpm -r check",
     "build:wasm:vala": "tree-sitter build --wasm tree-sitter/vala -o packages/core/wasm/tree-sitter-vala.wasm",
-    "build:wasm:sql": "tree-sitter build --wasm node_modules/@derekstride/tree-sitter-sql -o packages/core/wasm/tree-sitter-sql.wasm"
+    "build:wasm:sql": "tree-sitter build --wasm node_modules/@derekstride/tree-sitter-sql -o packages/core/wasm/tree-sitter-sql.wasm",
+    "build:wasm:graphql": "tree-sitter build --wasm tree-sitter/graphql -o packages/core/wasm/tree-sitter-graphql.wasm"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -28,6 +28,7 @@ import tomlQuery from './queries/toml.js';
 import yamlQuery from './queries/yaml.js';
 import elixirQuery from './queries/elixir.js';
 import sqlQuery from './queries/sql.js';
+import graphqlQuery from './queries/graphql.js';
 
 /**
  * Maps extension aliases to their normalized form.
@@ -90,5 +91,6 @@ export const LANGUAGE_REGISTRY: Record<string, LanguageRegistryEntry> = {
   toml:     { wasmName: 'toml',        query: tomlQuery },
   yaml:     { wasmName: 'yaml',        query: yamlQuery },
   ex:       { wasmName: 'elixir',      query: elixirQuery },
-  sql:      { wasmName: 'sql',         query: sqlQuery,    wasmPath: 'custom' },
+  sql:      { wasmName: 'sql',     query: sqlQuery,     wasmPath: 'custom' },
+  graphql:  { wasmName: 'graphql', query: graphqlQuery, wasmPath: 'custom' },
 };

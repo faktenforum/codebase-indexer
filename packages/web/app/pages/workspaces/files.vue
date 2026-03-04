@@ -72,7 +72,7 @@
             {{ t('files.showing', { from: pageFrom, to: pageTo, total: filteredFiles.length }) }}
           </span>
           <UPagination
-            v-model="currentPage"
+            v-model:page="currentPage"
             :total="filteredFiles.length"
             :items-per-page="pageSize"
             size="sm"

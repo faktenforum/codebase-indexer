@@ -71,6 +71,7 @@ const AST_SUPPORTED_EXTENSIONS = new Set([
   '.ex',
   '.exs',
   '.sql',
+  '.graphql',
 ]);
 
 /**

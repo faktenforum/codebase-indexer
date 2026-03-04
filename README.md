@@ -46,6 +46,7 @@ Languages with full AST parsing — code is split along semantic boundaries like
 | Markdown | `.md`, `.markdown` |
 | TOML | `.toml` |
 | YAML | `.yaml`, `.yml` |
+| GraphQL | `.graphql` |
 
 ### Line-based chunking (fallback)
 
@@ -53,7 +54,6 @@ These file types are indexed using line-based splitting.
 
 | Type | Extensions / Files |
 |------|-------------------|
-| GraphQL | `.graphql` |
 | Special files | `Dockerfile`, `Makefile`, `Vagrantfile`, `Gemfile`, `Rakefile`, `.env.example` |
 
 ## Packages

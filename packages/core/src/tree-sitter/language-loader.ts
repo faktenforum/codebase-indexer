@@ -4,9 +4,11 @@
 // See the upstream LICENSE for full terms.
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Parser as ParserT, Language as LanguageT, Query as QueryT } from 'web-tree-sitter';
 import { LANGUAGE_REGISTRY, EXTENSION_ALIASES } from './language-registry.js';
 
+const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 export interface LanguageParser {
@@ -23,7 +25,7 @@ const failedLanguages = new Set<string>();
 const parserCache = new Map<string, { parser: ParserT; query: QueryT }>();
 
 // Directory containing custom-built WASM files (e.g. for Vala, SQL)
-const customWasmDir = path.resolve(import.meta.dirname, '../../wasm');
+const customWasmDir = path.resolve(__dirname, '../../wasm');
 
 async function loadLanguage(langName: string, customWasmPath?: string): Promise<LanguageT> {
   if (failedLanguages.has(langName)) {
