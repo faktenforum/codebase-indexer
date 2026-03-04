@@ -16,6 +16,13 @@ import javaQuery from './queries/java.js';
 import rustQuery from './queries/rust.js';
 import cQuery from './queries/c.js';
 import cppQuery from './queries/cpp.js';
+import goQuery from './queries/go.js';
+import kotlinQuery from './queries/kotlin.js';
+import rubyQuery from './queries/ruby.js';
+import phpQuery from './queries/php.js';
+import swiftQuery from './queries/swift.js';
+import csharpQuery from './queries/csharp.js';
+import vueQuery from './queries/vue.js';
 
 const require = createRequire(import.meta.url);
 
@@ -177,6 +184,41 @@ export async function loadRequiredLanguageParsers(filesToParse: string[]): Promi
       case 'hpp': {
         language = await loadLanguage('cpp');
         query = new Query(language, cppQuery);
+        break;
+      }
+      case 'go': {
+        language = await loadLanguage('go');
+        query = new Query(language, goQuery);
+        break;
+      }
+      case 'kt': {
+        language = await loadLanguage('kotlin');
+        query = new Query(language, kotlinQuery);
+        break;
+      }
+      case 'rb': {
+        language = await loadLanguage('ruby');
+        query = new Query(language, rubyQuery);
+        break;
+      }
+      case 'php': {
+        language = await loadLanguage('php');
+        query = new Query(language, phpQuery);
+        break;
+      }
+      case 'swift': {
+        language = await loadLanguage('swift');
+        query = new Query(language, swiftQuery);
+        break;
+      }
+      case 'cs': {
+        language = await loadLanguage('c_sharp');
+        query = new Query(language, csharpQuery);
+        break;
+      }
+      case 'vue': {
+        language = await loadLanguage('vue');
+        query = new Query(language, vueQuery);
         break;
       }
       default:

@@ -56,6 +56,13 @@ const AST_SUPPORTED_EXTENSIONS = new Set([
   '.h',
   '.cpp',
   '.hpp',
+  '.go',
+  '.kt',
+  '.rb',
+  '.php',
+  '.swift',
+  '.cs',
+  '.vue',
 ]);
 
 function createSegmentHash(
@@ -82,6 +89,11 @@ function captureNameToKind(captureName: string): ChunkKind {
   if (captureName.includes('enum')) return 'enum';
   if (captureName.includes('module')) return 'module';
   if (captureName.includes('namespace')) return 'namespace';
+  if (captureName.includes('struct')) return 'class';
+  if (captureName.includes('trait')) return 'interface';
+  if (captureName.includes('protocol')) return 'interface';
+  if (captureName.includes('object')) return 'class';
+  if (captureName.includes('record')) return 'class';
   if (captureName.includes('decorator')) return 'decorator';
   return 'fallback';
 }
@@ -134,7 +146,16 @@ function buildParentScope(node: TreeSitterNode): string {
       type === 'async_function_definition' ||
       type === 'impl_item' ||
       type === 'module' ||
-      type === 'internal_module'
+      type === 'internal_module' ||
+      type === 'object_declaration' ||
+      type === 'companion_object' ||
+      type === 'trait_declaration' ||
+      type === 'namespace_declaration' ||
+      type === 'struct_declaration' ||
+      type === 'record_declaration' ||
+      type === 'protocol_declaration' ||
+      type === 'extension_declaration' ||
+      type === 'singleton_class'
     ) {
       const nameNode = current.childForFieldName('name');
       if (nameNode) {
