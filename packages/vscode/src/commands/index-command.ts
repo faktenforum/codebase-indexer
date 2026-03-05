@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { CodeIndexer } from '@codebase-indexer/core';
 import { log, logError } from '../logger';
+import { getWorkspaceFolder } from '../utils';
 
 export class IndexCommand {
   private indexer: CodeIndexer;
@@ -21,15 +22,12 @@ export class IndexCommand {
       return;
     }
 
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      vscode.window.showErrorMessage('No workspace folder open.');
-      logError('No workspace folder open');
-      return;
-    }
+    const firstFolder = getWorkspaceFolder('Index');
+    if (!firstFolder) return;
 
+    const folders = vscode.workspace.workspaceFolders!;
     const folder = folders.length === 1
-      ? folders[0]!
+      ? firstFolder
       : await vscode.window.showWorkspaceFolderPick({ placeHolder: 'Select workspace to index' });
 
     if (!folder) return;

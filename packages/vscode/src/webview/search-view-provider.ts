@@ -246,12 +246,12 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
           showResults(msg.results, msg.query);
           break;
         case 'updateIndexStatus':
-          if (!msg.isConfigured) {
-            statusEl.textContent = 'Please configure embedding API key in settings.';
-          } else if (msg.hasIndex) {
-            statusEl.textContent = 'Index ready. Search your codebase.';
+          if (msg.hasIndex) {
+            statusEl.textContent = 'Index ready. Full semantic + grep search available.';
+          } else if (msg.isConfigured) {
+            statusEl.textContent = 'Grep search available. Click "Index Workspace" for semantic search.';
           } else {
-            statusEl.textContent = 'No index found. Click "Index Workspace" to start.';
+            statusEl.textContent = 'Grep search available. Configure API key for semantic search.';
           }
           break;
         case 'indexComplete':

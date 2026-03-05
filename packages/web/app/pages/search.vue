@@ -115,6 +115,7 @@ const searchMode = ref('hybrid');
 
 const searchModeItems = computed(() => [
   { label: t('search.modeHybrid'), value: 'hybrid' },
+  { label: t('search.modeGrep'), value: 'grep' },
   { label: t('search.modeVector'), value: 'vector' },
   { label: t('search.modeFts'), value: 'fts' },
 ]);
@@ -133,7 +134,7 @@ async function handleSearch() {
     workspacePath: selectedWorkspace.value,
     path: pathFilter.value || undefined,
     limit: limit.value,
-    mode: searchMode.value as 'vector' | 'fts' | 'hybrid',
+    mode: searchMode.value as 'vector' | 'fts' | 'hybrid' | 'grep',
   });
 }
 

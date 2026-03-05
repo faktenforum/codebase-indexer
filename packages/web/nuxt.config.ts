@@ -13,6 +13,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   vite: {
+    // @ts-expect-error Vite plugin type mismatch between @tailwindcss/vite and Nuxt's bundled Vite version
     plugins: [tailwindcss()],
   },
 

@@ -65,7 +65,7 @@ export interface IndexStats {
   fileCount: number;
 }
 
-export type SearchMode = 'vector' | 'fts' | 'hybrid';
+export type SearchMode = 'vector' | 'fts' | 'hybrid' | 'grep';
 
 export interface SearchOptions {
   pathPrefix?: string;

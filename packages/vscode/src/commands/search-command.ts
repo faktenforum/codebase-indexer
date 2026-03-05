@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { CodeIndexer, SearchResult } from '@codebase-indexer/core';
 import { log, logError } from '../logger';
+import { getWorkspaceFolder } from '../utils';
 
 export class SearchCommand {
   private indexer: CodeIndexer;
@@ -14,29 +15,11 @@ export class SearchCommand {
   }
 
   async execute(preSelectedText?: string): Promise<void> {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      vscode.window.showErrorMessage('No workspace folder open.');
-      logError('Search: no workspace folder open');
-      return;
-    }
-
-    if (!this.indexer.isEnabled()) {
-      vscode.window.showErrorMessage('Codebase Indexer: Please configure an embedding API key in settings.');
-      logError('Search: indexer not enabled');
-      return;
-    }
-
-    const folder = folders[0]!;
-    const hasIdx = await this.indexer.hasIndex(folder.uri.fsPath);
-    if (!hasIdx) {
-      vscode.window.showWarningMessage('No index found. Please index the workspace first.');
-      log('Search: no index found');
-      return;
-    }
+    const folder = getWorkspaceFolder('Search');
+    if (!folder) return;
 
     const query = await vscode.window.showInputBox({
-      prompt: 'Semantic code search',
+      prompt: 'Code search (grep always available, semantic with index)',
       placeHolder: 'Search for code...',
       value: preSelectedText || '',
     });

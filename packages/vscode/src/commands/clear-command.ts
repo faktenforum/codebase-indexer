@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { LanceDBStore } from '@codebase-indexer/core';
 import type { CodeIndexer } from '@codebase-indexer/core';
 import { log, logError } from '../logger';
+import { getWorkspaceFolder } from '../utils';
 
 export class ClearCommand {
   private indexer: CodeIndexer;
@@ -15,12 +16,8 @@ export class ClearCommand {
   }
 
   async execute(): Promise<void> {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      vscode.window.showErrorMessage('No workspace folder open.');
-      logError('Clear: no workspace folder open');
-      return;
-    }
+    const folder = getWorkspaceFolder('Clear');
+    if (!folder) return;
 
     const confirm = await vscode.window.showWarningMessage(
       'Are you sure you want to clear the code index?',
@@ -30,7 +27,6 @@ export class ClearCommand {
 
     if (confirm !== 'Clear Index') return;
 
-    const folder = folders[0]!;
     const config = vscode.workspace.getConfiguration('codebaseIndexer');
     const indexDir = config.get<string>('indexDir') || '.codebase-indexer';
     const dimensions = config.get<number>('embedding.dimensions') || 1536;

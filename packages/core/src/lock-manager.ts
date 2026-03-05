@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { open, mkdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const LOCK_FILENAME = '.indexing.lock';
@@ -7,16 +7,16 @@ export const LOCK_MAX_RETRIES = 10;
 
 /**
  * Try to acquire an exclusive lock file in the given directory.
- * Returns a release function on success, null if already locked.
+ * Returns an async release function on success, null if already locked.
  */
-export function acquireLock(indexDir: string): (() => void) | null {
-  if (!existsSync(indexDir)) mkdirSync(indexDir, { recursive: true });
+export async function acquireLock(indexDir: string): Promise<(() => Promise<void>) | null> {
+  await mkdir(indexDir, { recursive: true });
   const lockPath = join(indexDir, LOCK_FILENAME);
   try {
-    const fd = openSync(lockPath, 'wx');
-    closeSync(fd);
-    return () => {
-      try { unlinkSync(lockPath); } catch { /* ignore */ }
+    const fh = await open(lockPath, 'wx');
+    await fh.close();
+    return async () => {
+      try { await unlink(lockPath); } catch { /* ignore */ }
     };
   } catch {
     return null;
@@ -27,15 +27,12 @@ export function acquireLock(indexDir: string): (() => void) | null {
  * Force-remove a stale lock file.
  * Returns true if a lock was removed, false if none existed.
  */
-export function releaseLockFile(indexDir: string): boolean {
+export async function releaseLockFile(indexDir: string): Promise<boolean> {
   const lockPath = join(indexDir, LOCK_FILENAME);
-  if (existsSync(lockPath)) {
-    try {
-      unlinkSync(lockPath);
-      return true;
-    } catch {
-      return false;
-    }
+  try {
+    await unlink(lockPath);
+    return true;
+  } catch {
+    return false;
   }
-  return false;
 }

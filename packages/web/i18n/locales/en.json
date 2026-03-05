@@ -53,6 +53,7 @@
     "resultCount": "{count} results",
     "lines": "Lines {start}-{end}",
     "modeHybrid": "Hybrid (Recommended)",
+    "modeGrep": "Grep (Exact Match)",
     "modeVector": "Vector (Semantic)",
     "modeFts": "Full-Text (Keyword)"
   },

@@ -2,10 +2,11 @@
  * Code indexer orchestrator: scan, filter, chunk, embed, store, search.
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import type { CodeIndexConfig } from './config.js';
 import { resolveEmbeddingConfig } from './config.js';
@@ -32,6 +33,10 @@ import {
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SCORE,
 } from './constants.js';
+import { grepSearch } from './grep-search.js';
+import { mergeWithRrf } from './ranking.js';
+
+const execFileAsync = promisify(execFile);
 
 export class CodeIndexer {
   private readonly config: CodeIndexConfig;
@@ -75,14 +80,14 @@ export class CodeIndexer {
 
   async getIndexStats(workspacePath: string): Promise<IndexStats | null> {
     if (!this.isEnabled()) return null;
-    const indexPath = this.resolveIndexPath(workspacePath);
+    const indexPath = await this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
     const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
     try {
       await store.initialize();
       const complete = await store.isIndexComplete();
       const hasData = await store.hasData();
-      const fileCount = store.getIndexedFileCount();
+      const fileCount = await store.getIndexedFileCount();
       await store.close();
       if (!complete || !hasData) return null;
       return { fileCount };
@@ -100,20 +105,20 @@ export class CodeIndexer {
       return this.getIndexStatus(workspacePath);
     }
 
-    const indexPath = this.resolveIndexPath(workspacePath);
+    const indexPath = await this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
 
     // Acquire exclusive lock; retry up to LOCK_MAX_RETRIES times
-    let releaseLock: (() => void) | null = null;
+    let releaseLock: (() => Promise<void>) | null = null;
     for (let attempt = 0; attempt < LOCK_MAX_RETRIES; attempt++) {
-      releaseLock = acquireLock(indexPath);
+      releaseLock = await acquireLock(indexPath);
       if (releaseLock) break;
       // Another process is indexing; if already complete, skip
       const checkStore = new LanceDBStore({ dbPath: indexPath, vectorSize });
       try {
         await checkStore.initialize();
         const complete = await checkStore.isIndexComplete();
-        const fileCount = checkStore.getIndexedFileCount();
+        const fileCount = await checkStore.getIndexedFileCount();
         await checkStore.close();
         if (complete && !force) {
           this.setStatus(workspacePath, 'indexed', 'Index complete (shared cache hit)', fileCount, fileCount);
@@ -135,8 +140,8 @@ export class CodeIndexer {
     try {
       this.setStatus(workspacePath, 'indexing', 'Listing files...', 0, 0);
       const indexDir = this.getIndexDir();
-      const ignoreInstance = loadIgnorePatterns(workspacePath, indexDir);
-      const filePaths = listFilesRecursive(workspacePath, workspacePath, ignoreInstance);
+      const ignoreInstance = await loadIgnorePatterns(workspacePath, indexDir);
+      const filePaths = await listFilesRecursive(workspacePath, workspacePath, ignoreInstance);
       const total = filePaths.length;
       this.setStatus(workspacePath, 'indexing', 'Initializing store...', 0, total);
 
@@ -145,7 +150,7 @@ export class CodeIndexer {
         await store.markIndexingIncomplete();
       }
 
-      const prevHashes = force ? {} : loadFileHashes(indexPath, workspacePath);
+      const prevHashes = force ? {} : await loadFileHashes(indexPath, workspacePath);
       const currentHashes: Record<string, string> = {};
       const toIndex: string[] = [];
       const toDelete: string[] = [];
@@ -153,14 +158,14 @@ export class CodeIndexer {
 
       for (const relPath of filePaths) {
         const absPath = join(workspacePath, relPath);
-        let stat;
+        let fileStat;
         try {
-          stat = statSync(absPath);
+          fileStat = await stat(absPath);
         } catch {
           continue;
         }
-        if (!stat.isFile() || stat.size > MAX_FILE_SIZE_BYTES) continue;
-        const content = readFileSync(absPath, 'utf-8');
+        if (!fileStat.isFile() || fileStat.size > MAX_FILE_SIZE_BYTES) continue;
+        const content = await readFile(absPath, 'utf-8');
         const hash = createFileHash(content);
         currentHashes[relPath] = hash;
         if (prevHashes[relPath] !== hash) {
@@ -183,7 +188,7 @@ export class CodeIndexer {
         const allBlocks: CodeBlock[] = [];
         for (const relPath of batchPaths) {
           const cached = contentCache.get(relPath);
-          const content = cached ?? readFileSync(join(workspacePath, relPath), 'utf-8');
+          const content = cached ?? await readFile(join(workspacePath, relPath), 'utf-8');
           if (cached) contentCache.delete(relPath);
           const fileHash = currentHashes[relPath]!;
           const blocks = await chunkFileWithAst(relPath, content, fileHash);
@@ -201,16 +206,16 @@ export class CodeIndexer {
         this.setStatus(workspacePath, 'indexing', `Indexed ${processed}/${toIndex.length} files`, processed, total);
       }
 
-      saveFileHashes(indexPath, workspacePath, currentHashes);
+      await saveFileHashes(indexPath, workspacePath, currentHashes);
       await store.markIndexingComplete(total);
       await store.optimize();
       await store.createFtsIndex();
       await store.close();
-      releaseLock();
+      await releaseLock();
       this.setStatus(workspacePath, 'indexed', 'Index complete', total, total);
       return this.getIndexStatus(workspacePath);
     } catch (err) {
-      releaseLock();
+      await releaseLock();
       const message = err instanceof Error ? err.message : String(err);
       this.setStatus(workspacePath, 'error', message, 0, 0);
       await store.close().catch(() => {});
@@ -223,17 +228,92 @@ export class CodeIndexer {
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult[]> {
-    if (!this.isEnabled()) return [];
+    const mode = options?.mode ?? 'hybrid';
+    const limit = options?.limit ?? DEFAULT_SEARCH_LIMIT;
+    const grepOpts = {
+      workspacePath,
+      query,
+      pathPrefix: options?.pathPrefix,
+      limit,
+    };
 
-    const indexPath = this.resolveIndexPath(workspacePath);
+    // Pure grep — no index needed
+    if (mode === 'grep') {
+      return grepSearch(grepOpts);
+    }
+
+    // FTS and vector require an enabled index
+    if (mode === 'fts' || mode === 'vector') {
+      if (!this.isEnabled()) return [];
+      return this.searchWithStore(workspacePath, query, mode, options);
+    }
+
+    // Hybrid mode: use all available channels
+    const indexAvailable = this.isEnabled() && (await this.hasIndexSafe(workspacePath));
+
+    if (!indexAvailable) {
+      return grepSearch(grepOpts);
+    }
+
+    // Full hybrid: vector(1.0) + fts(0.5) + grep(0.5)
+    const overfetchLimit = Math.max(limit * 3, 50);
+    const indexPath = await this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
     const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
-    const mode = options?.mode ?? 'hybrid';
 
     try {
       await store.initialize();
-      const data = await store.hasData();
-      if (!data) {
+      if (!(await store.hasData())) {
+        await store.close();
+        return grepSearch(grepOpts);
+      }
+
+      const [queryVector] = await this.embeddingService.embedBatch([query]);
+      const storeOpts = {
+        pathPrefix: options?.pathPrefix,
+        limit: overfetchLimit,
+        minScore: options?.minScore ?? DEFAULT_MIN_SCORE,
+      };
+
+      const [vectorResults, ftsResults, grepResults] = await Promise.all([
+        store.search(queryVector!, storeOpts),
+        store.ftsSearch(query, storeOpts),
+        grepSearch({ ...grepOpts, limit: overfetchLimit }),
+      ]);
+
+      await store.close();
+
+      return mergeWithRrf(
+        [
+          { results: vectorResults, weight: 1.0 },
+          { results: ftsResults, weight: 0.5 },
+          { results: grepResults, weight: 0.5 },
+        ],
+        { limit },
+      );
+    } catch (err) {
+      console.warn('[CodeIndexer] hybrid search failed, falling back to grep:', (err as Error).message);
+      await store.close().catch(() => {});
+      return grepSearch(grepOpts);
+    }
+  }
+
+  /**
+   * Store-based search for fts/vector modes (requires enabled index).
+   */
+  private async searchWithStore(
+    workspacePath: string,
+    query: string,
+    mode: 'fts' | 'vector',
+    options?: SearchOptions,
+  ): Promise<SearchResult[]> {
+    const indexPath = await this.resolveIndexPath(workspacePath);
+    const vectorSize = this.embeddingService.getDimensions();
+    const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
+
+    try {
+      await store.initialize();
+      if (!(await store.hasData())) {
         await store.close();
         return [];
       }
@@ -245,15 +325,11 @@ export class CodeIndexer {
       };
 
       let results: SearchResult[];
-
       if (mode === 'fts') {
         results = await store.ftsSearch(query, searchOpts);
-      } else if (mode === 'vector') {
-        const [queryVector] = await this.embeddingService.embedBatch([query]);
-        results = await store.search(queryVector!, searchOpts);
       } else {
         const [queryVector] = await this.embeddingService.embedBatch([query]);
-        results = await store.hybridSearch(queryVector!, query, searchOpts);
+        results = await store.search(queryVector!, searchOpts);
       }
 
       await store.close();
@@ -265,9 +341,20 @@ export class CodeIndexer {
     }
   }
 
+  /**
+   * Check if index exists, returning false on any error.
+   */
+  private async hasIndexSafe(workspacePath: string): Promise<boolean> {
+    try {
+      return await this.hasIndex(workspacePath);
+    } catch {
+      return false;
+    }
+  }
+
   async hasIndex(workspacePath: string): Promise<boolean> {
     if (!this.isEnabled()) return false;
-    const indexPath = this.resolveIndexPath(workspacePath);
+    const indexPath = await this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
     const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
     try {
@@ -283,7 +370,7 @@ export class CodeIndexer {
 
   async listIndexedFiles(workspacePath: string): Promise<string[]> {
     if (!this.isEnabled()) return [];
-    const indexPath = this.resolveIndexPath(workspacePath);
+    const indexPath = await this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
     const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
 
@@ -310,7 +397,7 @@ export class CodeIndexer {
     limit: number,
   ): Promise<DebugChunkEntry[]> {
     if (!this.isEnabled()) return [];
-    const indexPath = this.resolveIndexPath(workspacePath);
+    const indexPath = await this.resolveIndexPath(workspacePath);
     const vectorSize = this.embeddingService.getDimensions();
     const store = new LanceDBStore({ dbPath: indexPath, vectorSize });
 
@@ -351,11 +438,11 @@ export class CodeIndexer {
   ): Promise<DebugChunkEntry[]> {
     const absPath = join(workspacePath, relativePath);
     try {
-      const stat = statSync(absPath);
-      if (!stat.isFile() || stat.size > MAX_FILE_SIZE_BYTES) {
+      const fileStat = await stat(absPath);
+      if (!fileStat.isFile() || fileStat.size > MAX_FILE_SIZE_BYTES) {
         return [];
       }
-      const content = readFileSync(absPath, 'utf-8');
+      const content = await readFile(absPath, 'utf-8');
       const fileHash = createFileHash(content);
       const blocks = await chunkFileWithAst(relativePath, content, fileHash);
       const limited = blocks.slice(0, limit);
@@ -379,9 +466,9 @@ export class CodeIndexer {
   /**
    * Force-releases a stale index lock for a workspace.
    */
-  releaseLock(workspacePath: string): boolean {
-    const indexPath = this.resolveIndexPath(workspacePath);
-    const released = releaseLockFile(indexPath);
+  async releaseLock(workspacePath: string): Promise<boolean> {
+    const indexPath = await this.resolveIndexPath(workspacePath);
+    const released = await releaseLockFile(indexPath);
     if (released) this.setStatus(workspacePath, 'standby', '', 0, 0);
     return released;
   }
@@ -414,15 +501,16 @@ export class CodeIndexer {
     return this.config.sharedIndexBaseDir;
   }
 
-  private resolveIndexPath(workspacePath: string): string {
+  private async resolveIndexPath(workspacePath: string): Promise<string> {
     const sharedBase = this.getSharedIndexBaseDir();
     if (sharedBase) {
       try {
-        const remoteUrl = execSync('git remote get-url origin', {
+        const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], {
           cwd: workspacePath,
           encoding: 'utf-8',
           timeout: 3000,
-        }).trim();
+        });
+        const remoteUrl = stdout.trim();
         if (remoteUrl) {
           const hash = createHash('sha256').update(remoteUrl).digest('hex').slice(0, 16);
           return join(sharedBase, hash);

@@ -37,6 +37,13 @@ export { chunkFile, chunkFileWithAst, createFileHash } from './chunking/index.js
 export { loadRequiredLanguageParsers } from './tree-sitter/language-loader.js';
 export type { LanguageParser } from './tree-sitter/language-loader.js';
 
+// Grep search
+export { grepSearch } from './grep-search.js';
+export type { GrepSearchOptions } from './grep-search.js';
+
+// Ranking
+export { mergeWithRrf } from './ranking.js';
+
 // Constants
 export {
   DEFAULT_INDEX_DIR,

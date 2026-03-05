@@ -1,4 +1,4 @@
-export type SearchMode = 'vector' | 'fts' | 'hybrid';
+export type SearchMode = 'vector' | 'fts' | 'hybrid' | 'grep';
 
 export interface SearchRequest {
   query: string;

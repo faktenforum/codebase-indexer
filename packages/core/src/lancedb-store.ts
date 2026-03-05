@@ -2,10 +2,11 @@
  * LanceDB embedded vector store for code index (per workspace).
  */
 
-import { mkdirSync, existsSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CodeBlock, SearchResult, ChunkKind } from './types.js';
 import { DEFAULT_SEARCH_LIMIT, DEFAULT_MIN_SCORE } from './constants.js';
+import { mergeWithRrf } from './ranking.js';
 
 const VECTOR_TABLE_NAME = 'vector';
 const METADATA_TABLE_NAME = 'metadata';
@@ -57,9 +58,7 @@ export class LanceDBStore {
   private async getDb() {
     if (this.db) return this.db;
     const lancedb = await this.getLanceDB();
-    if (!existsSync(this.dbPath)) {
-      mkdirSync(this.dbPath, { recursive: true });
-    }
+    await mkdir(this.dbPath, { recursive: true });
     this.db = await lancedb.connect(this.dbPath);
     return this.db;
   }
@@ -76,9 +75,7 @@ export class LanceDBStore {
   }
 
   async initialize(): Promise<void> {
-    if (!existsSync(this.dbPath)) {
-      mkdirSync(this.dbPath, { recursive: true });
-    }
+    await mkdir(this.dbPath, { recursive: true });
     const db = await this.getDb();
     const tableNames = await db.tableNames();
     const vectorExists = tableNames.includes(VECTOR_TABLE_NAME);
@@ -91,19 +88,19 @@ export class LanceDBStore {
     }
 
     this.table = await db.openTable(VECTOR_TABLE_NAME);
-    if (!this.readMetadata() && metadataExists) {
+    if (!(await this.readMetadata()) && metadataExists) {
       try {
         const metaTable = await db.openTable(METADATA_TABLE_NAME);
         const rows = await metaTable.query().toArray();
         const byKey: Record<string, unknown> = {};
         for (const r of rows as { key: string; value: unknown }[]) byKey[r.key] = r.value;
-        this.writeMetadata({
+        await this.writeMetadata({
           vector_size: (byKey.vector_size as number) ?? this.vectorSize,
           indexing_complete: (byKey.indexing_complete as boolean) ?? false,
           last_indexed_at: (byKey.last_indexed_at as string) ?? new Date().toISOString(),
         });
       } catch {
-        this.writeMetadata({
+        await this.writeMetadata({
           vector_size: this.vectorSize,
           indexing_complete: false,
           last_indexed_at: new Date().toISOString(),
@@ -114,7 +111,7 @@ export class LanceDBStore {
     if (storedSize !== null && storedSize !== this.vectorSize) {
       await this.dropTable(db, VECTOR_TABLE_NAME);
       await this.dropTable(db, METADATA_TABLE_NAME);
-      if (existsSync(this.getMetadataPath())) rmSync(this.getMetadataPath());
+      try { await rm(this.getMetadataPath()); } catch { /* ignore */ }
       await this.createVectorTable(db);
       await this.createMetadataTable(db);
     }
@@ -144,7 +141,7 @@ export class LanceDBStore {
       { key: 'indexing_complete', value: false },
       { key: 'last_indexed_at', value: new Date().toISOString() },
     ]);
-    this.writeMetadata({
+    await this.writeMetadata({
       vector_size: this.vectorSize,
       indexing_complete: false,
       last_indexed_at: new Date().toISOString(),
@@ -162,24 +159,22 @@ export class LanceDBStore {
     return join(this.dbPath, METADATA_JSON);
   }
 
-  private readMetadata(): MetadataJson | null {
-    const path = this.getMetadataPath();
-    if (!existsSync(path)) return null;
+  private async readMetadata(): Promise<MetadataJson | null> {
     try {
-      const raw = readFileSync(path, 'utf-8');
+      const raw = await readFile(this.getMetadataPath(), 'utf-8');
       return JSON.parse(raw) as MetadataJson;
     } catch {
       return null;
     }
   }
 
-  private writeMetadata(data: MetadataJson): void {
-    if (!existsSync(this.dbPath)) mkdirSync(this.dbPath, { recursive: true });
-    writeFileSync(this.getMetadataPath(), JSON.stringify(data), 'utf-8');
+  private async writeMetadata(data: MetadataJson): Promise<void> {
+    await mkdir(this.dbPath, { recursive: true });
+    await writeFile(this.getMetadataPath(), JSON.stringify(data), 'utf-8');
   }
 
   private async getStoredVectorSize(db: LanceConnection): Promise<number | null> {
-    const meta = this.readMetadata();
+    const meta = await this.readMetadata();
     if (meta) return meta.vector_size;
     try {
       const metaTable = await db.openTable(METADATA_TABLE_NAME);
@@ -358,45 +353,27 @@ export class LanceDBStore {
     const limit = options?.limit ?? DEFAULT_SEARCH_LIMIT;
     const overfetchLimit = Math.max(limit * 3, 50);
 
-    // Run both searches in parallel
     const [vectorResults, ftsResults] = await Promise.all([
       this.search(queryVector, { ...options, limit: overfetchLimit }),
       this.ftsSearch(queryText, { pathPrefix: options?.pathPrefix, limit: overfetchLimit }),
     ]);
 
-    // RRF merging (k = 60, standard constant)
-    const k = 60;
-    const scoreMap = new Map<string, { score: number; result: SearchResult }>();
-    const chunkKey = (r: SearchResult) => `${r.file_path}:${r.start_line}-${r.end_line}`;
-
-    const addRrfScores = (results: SearchResult[]) => {
-      results.forEach((result, index) => {
-        const key = chunkKey(result);
-        const existing = scoreMap.get(key);
-        const rrfScore = 1 / (k + index + 1);
-        scoreMap.set(key, {
-          score: (existing?.score ?? 0) + rrfScore,
-          result: existing?.result ?? result,
-        });
-      });
-    };
-
-    addRrfScores(vectorResults);
-    addRrfScores(ftsResults);
-
-    return Array.from(scoreMap.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map(({ score, result }) => ({ ...result, score }));
+    return mergeWithRrf(
+      [
+        { results: vectorResults, weight: 1.0 },
+        { results: ftsResults, weight: 1.0 },
+      ],
+      { limit },
+    );
   }
 
   async markIndexingComplete(fileCount?: number): Promise<void> {
-    const meta = this.readMetadata() ?? {
+    const meta = (await this.readMetadata()) ?? {
       vector_size: this.vectorSize,
       indexing_complete: false,
       last_indexed_at: '',
     };
-    this.writeMetadata({
+    await this.writeMetadata({
       ...meta,
       vector_size: meta.vector_size ?? this.vectorSize,
       indexing_complete: true,
@@ -406,12 +383,12 @@ export class LanceDBStore {
   }
 
   async markIndexingIncomplete(): Promise<void> {
-    const meta = this.readMetadata() ?? {
+    const meta = (await this.readMetadata()) ?? {
       vector_size: this.vectorSize,
       indexing_complete: false,
       last_indexed_at: '',
     };
-    this.writeMetadata({
+    await this.writeMetadata({
       ...meta,
       vector_size: meta.vector_size ?? this.vectorSize,
       indexing_complete: false,
@@ -420,12 +397,12 @@ export class LanceDBStore {
   }
 
   async isIndexComplete(): Promise<boolean> {
-    const meta = this.readMetadata();
+    const meta = await this.readMetadata();
     return meta?.indexing_complete === true;
   }
 
-  getIndexedFileCount(): number {
-    const meta = this.readMetadata();
+  async getIndexedFileCount(): Promise<number> {
+    const meta = await this.readMetadata();
     return typeof meta?.indexed_file_count === 'number' ? meta.indexed_file_count : 0;
   }
 
@@ -475,8 +452,10 @@ export class LanceDBStore {
 
   async deleteAll(): Promise<void> {
     await this.close();
-    if (existsSync(this.dbPath)) {
-      rmSync(this.dbPath, { recursive: true, force: true });
+    try {
+      await rm(this.dbPath, { recursive: true, force: true });
+    } catch {
+      // directory may not exist
     }
   }
 }
