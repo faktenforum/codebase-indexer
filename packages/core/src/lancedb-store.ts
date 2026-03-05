@@ -88,6 +88,22 @@ export class LanceDBStore {
     }
 
     this.table = await db.openTable(VECTOR_TABLE_NAME);
+
+    // Check if schema has all required columns; recreate if outdated
+    const requiredColumns = ['id', 'vector', 'filePath', 'codeChunk', 'startLine', 'endLine', 'symbol', 'parentScope', 'kind'];
+    const schema = await this.table.schema();
+    const existingFields = new Set(schema.fields.map((f: { name: string }) => f.name));
+    const missingColumns = requiredColumns.filter((col) => !existingFields.has(col));
+    if (missingColumns.length > 0) {
+      console.log(`[LanceDBStore] Schema outdated (missing: ${missingColumns.join(', ')}), recreating tables...`);
+      await this.dropTable(db, VECTOR_TABLE_NAME);
+      await this.dropTable(db, METADATA_TABLE_NAME);
+      try { await rm(this.getMetadataPath()); } catch { /* ignore */ }
+      await this.createVectorTable(db);
+      await this.createMetadataTable(db);
+      return;
+    }
+
     if (!(await this.readMetadata()) && metadataExists) {
       try {
         const metaTable = await db.openTable(METADATA_TABLE_NAME);
